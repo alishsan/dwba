@@ -1,7 +1,7 @@
 
 (ns dwba.core)
 
-
+(require '[generateme.fastmath.polynomials :as poly])
 (use 'complex)
 
 
@@ -32,4 +32,5 @@
         n 1000      ; number of intervals for integration
         t-element (t-matrix-element initial-momentum final-momentum r-max n)]
     t-element))
+
 
