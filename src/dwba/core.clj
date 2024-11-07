@@ -1,13 +1,15 @@
-
 (ns dwba.core
 ( :require
 [fastmath.core :as m]
-[fastmath.polynomials :as poly]
+ [fastmath.polynomials :as poly]
+  [aerial.hanami.common :as hc]
+            [aerial.hanami.templates :as ht]
+ [aerial.hanami.core :as hmi]
+ [nextjournal.clerk :as clerk]
 )
 )
 (use 'complex)
 ;(use 'functions)
-
 
 
 (defn nuclear-potential [r]
@@ -46,3 +48,20 @@ dr (/ R N)]
 [ur dudr]
 (recur  (+ x dr) (+ ur (* dudr dr)) (* (- V E) ur) (+ dudr (* d2udr2 dr))))
 )))
+
+(def xs (range 1 10 0.1))
+
+(def ys (map phase-shift (repeat (count xs) -4) (repeat (count xs) -2) xs))
+
+ (def phase-data (->> xs
+                      (mapv (fn[p] {:x p, :y (first (phase-shift -2 -4 p))}))))
+
+(def point-chart
+  (hc/xform ht/point-chart
+            :DATA phase-data
+            :X :x
+            :Y :y
+            )
+  )
+
+(clerk/vl point-chart)
