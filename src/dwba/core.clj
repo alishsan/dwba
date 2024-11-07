@@ -1,8 +1,12 @@
 
-(ns dwba.core)
-
-(require '[generateme.fastmath.polynomials :as poly])
+(ns dwba.core
+( :require
+[fastmath.core :as m]
+[fastmath.polynomials :as poly]
+)
+)
 (use 'complex)
+;(use 'functions)
 
 
 
@@ -33,4 +37,12 @@
         t-element (t-matrix-element initial-momentum final-momentum r-max n)]
     t-element))
 
-
+(defn phase-shift [^double E ^double V ^double R]  ;construct phase shift depending on 1D potential
+;choose u(0) = 0, u'(0) = 1 for initial conditions
+(let [N  1000
+dr (/ R N)]
+(loop [x 0 ur 0 d2udr2 0 dudr 1]
+(if (> x R)
+[ur dudr]
+(recur  (+ x dr) (+ ur (* dudr dr)) (* (- V E) ur) (+ dudr (* d2udr2 dr))))
+)))
