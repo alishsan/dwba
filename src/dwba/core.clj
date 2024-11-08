@@ -2,6 +2,7 @@
 ( :require
 [fastmath.core :as m]
  [fastmath.polynomials :as poly]
+  [fastmath.special :as spec]
   [aerial.hanami.common :as hc]
             [aerial.hanami.templates :as ht]
  [aerial.hanami.core :as hmi]
@@ -39,29 +40,69 @@
         t-element (t-matrix-element initial-momentum final-momentum r-max n)]
     t-element))
 
-(defn phase-shift [^double E ^double V ^double R]  ;construct phase shift depending on 1D potential
+(defn WS ;  Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0))
+  [r [V0 R0 a0]]
+  ( / (* -1.0 V0) (+ 1.0 (Math/exp (/ (- r R0) a0))))
+  )
+
+(defn hankel0+ [L rho]
+(-  (* rho (poly/eval-bessel-t L rho))   (* rho (poly/eval-bessel-t L rho)))
+  )
+
+
+(defn hankel0- [L rho]
+(+  (* rho (poly/eval-bessel-t L rho))   (* rho (poly/eval-bessel-t L rho)))
+  )
+
+(defn Ra [^double E V  ^double R ^long L]  ;construct R-matrix * a depending on 1D Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
 ;choose u(0) = 0, u'(0) = 1 for initial conditions
 (let [N  1000
 dr (/ R N)]
-(loop [x 0 ur 0 d2udr2 0 dudr 1]
+(loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
 (if (> x R)
-[ur dudr]
-(recur  (+ x dr) (+ ur (* dudr dr)) (* (- V E) ur) (+ dudr (* d2udr2 dr))))
+(/ ur  dudr) ;Ra = u/dudr  (dudr = d2udr2 * dr)
+(recur  (+ x dr) (WS x V) (*  (+ (/ (* L (inc L)) (* x x)) (-  pot E)) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
 )))
 
-(def xs (range 1 10 0.1))
+(def xs (range 0.1 5.1 0.01))
 
-(def ys (map phase-shift (repeat (count xs) -4) (repeat (count xs) -2) xs))
 
  (def phase-data (->> xs
-                      (mapv (fn[p] {:x p, :y (first (phase-shift -2 -4 p))}))))
+                      (mapv (fn[p] {:x p, "Ra_L" (Ra 1 [4 1 1] p 0)}))))
+
+(defn ffunc [L rho] (* rho (spec/spherical-bessel-j L rho)))
+(defn gfunc [L rho] (* -1 rho (spec/spherical-bessel-y L rho)))
+
+(defn hankel0+ [L rho]
+  (complex-from-cartesian (gfunc L rho ) (ffunc L rho))
+  )
+
+
+(defn hankel0- [L rho]
+  (complex-from-cartesian (gfunc L rho ) (* -1.0 (ffunc L rho)))
+  )
+
+ (def bessel-data (->> xs
+                      (mapv (fn[p] {:x p, "Ra_L" (gfunc0  p )}))))
 
 (def point-chart
   (hc/xform ht/point-chart
-            :DATA phase-data
+            :DATA bessel-data
             :X :x
-            :Y :y
+            :Y "Ra_L"
             )
   )
+
+(defmacro deriv
+  ([fn1 x dx]
+`(/ (- (~fn1 (+ ~x ~dx)) (~fn1 ~x)) ~dx)
+   )
+
+    ([fn1 n x dx]
+`(/ (- (~fn1 ~n (+ ~x ~dx)) (~fn1 ~n ~x)) ~dx)
+   )
+  )
+
+
 
 (clerk/vl point-chart)
