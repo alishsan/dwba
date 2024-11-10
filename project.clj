@@ -6,7 +6,9 @@
             :url "https://www.eclipse.org/legal/epl-2.0/"}
   :dependencies [[org.clojure/clojure "1.11.1"]
                  [generateme/fastmath "3.0.0-alpha1" :exclusions [com.github.haifengl/smile-mkl]]
-                 [io.github.nextjournal/clerk  "0.17.1102"]
-                 [aerial.hanami "0.15.1"] ]
+ ;                [io.github.nextjournal/clerk  "0.17.1102"]
+;                 [aerial.hanami "0.15.1"]
+[cljplot "0.0.4-SNAPSHOT"]
+]
 
   :repl-options {:init-ns dwba.core})

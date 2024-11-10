@@ -3,10 +3,6 @@
 [fastmath.core :as m]
  [fastmath.polynomials :as poly]
   [fastmath.special :as spec]
-  [aerial.hanami.common :as hc]
-            [aerial.hanami.templates :as ht]
- [aerial.hanami.core :as hmi]
- [nextjournal.clerk :as clerk]
 )
 )
 (use 'complex)
@@ -82,16 +78,6 @@ dr (/ R N)]
   (complex-from-cartesian (gfunc L rho ) (* -1.0 (ffunc L rho)))
   )
 
- (def bessel-data (->> xs
-                      (mapv (fn[p] {:x p, "Ra_L" (gfunc0  p )}))))
-
-(def point-chart
-  (hc/xform ht/point-chart
-            :DATA bessel-data
-            :X :x
-            :Y "Ra_L"
-            )
-  )
 
 (defmacro deriv
   ([fn1 x dx]
@@ -103,6 +89,3 @@ dr (/ R N)]
    )
   )
 
-
-
-(clerk/vl point-chart)
