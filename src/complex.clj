@@ -36,9 +36,20 @@
                           (+ (im x) (im y))))
 (defn add [x & y] (reduce add2 (cons x y)))
 
+(defn subt2 [x y] "Adds the given complex numbers together."
+  (complex-from-cartesian (- (re x) (re y))
+                          (- (im x) (im y))))
+
+(defn subt [x & y] (reduce subt2 (cons x y)))
+
 (defn mul [x y] "Multiplies the given complex numbers together."
   (complex-from-polar (+ (arg x) (arg y))
                       (* (mag x) (mag y))))
+
+(defn div [x y] "Multiplies the given complex numbers together."
+  (complex-from-polar (- (arg x) (arg y))
+                      (/ (mag x) (mag y))))
+
 (extend-type java.lang.Number
   ComplexArithmetic
   (re [this]
