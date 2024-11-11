@@ -24,6 +24,11 @@
   ( / (* -1.0 V0) (+ 1.0 (Math/exp (/ (- r R0) a0))))
   )
 
+(defn WS-complex ;  Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0))
+  [r [V0 R0 a0]]
+  ( div (mul -1.0 V0) (+ 1.0 (Math/exp (/ (- r R0) a0))))
+  )
+
 (defn hankel0+ [L rho]
 (-  (* rho (poly/eval-bessel-t L rho))   (* rho (poly/eval-bessel-t L rho)))
   )
@@ -59,17 +64,17 @@ dr (/ a N)]
 
 (defn s-matrix [^double E V  ^double a ^long L]
   (let [ra (r-matrix-a E V a L)]
-    (div (subt (hankel0- L a) (mul ra (deriv hankel0- L a 0.000001)) )
-         (subt (hankel0+ L a) (mul ra (deriv hankel0+ L a 0.000001)) ))
+    (div (subt2 (hankel0- L a) (mul ra (deriv hankel0- L a 0.000001)) )
+         (subt2 (hankel0+ L a) (mul ra (deriv hankel0+ L a 0.000001)) ))
  ))
 
 (defn k-matrix [^double E V  ^double a ^long L]
   (let [ra (r-matrix-a E V a L)]
-    (/ (subt  (mul ra (deriv f-func L a 0.000001))  (f-func L a))
-         (subt (g-func L a) (mul ra (deriv g-func L a 0.000001)) ))
+    (div (subt2  (mul ra (deriv f-func L a 0.0000001))  (f-func L a))
+         (subt2 (g-func L a) (mul ra (deriv g-func L a 0.0000001)) ))
  ))
 
-(defn phase-shift  [^double E V  ^double a ^long L]
+(defn phase-shift  [^double E V  ^double a ^long L ]
   (let [s (s-matrix E V a L)]
     (div (arg s) 2)
     ))
