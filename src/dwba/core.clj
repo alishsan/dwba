@@ -11,10 +11,6 @@
 (use 'complex)
 (use 'functions)
 
-(defn sigma-L [E V a L]
-(* (/ 2 E) Math/PI (+ (* 2 L) 1) (Math/pow (mag (subt2 1. (s-matrix E V a L)))  2) )
-)
-
 (def xs (range 0.1 5.1 0.01))
 
 

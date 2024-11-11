@@ -69,6 +69,15 @@ dr (/ a N)]
          (subt (g-func L a) (mul ra (deriv g-func L a 0.000001)) ))
  ))
 
-  
+(defn phase-shift  [^double E V  ^double a ^long L]
+  (let [s (s-matrix E V a L)]
+    (div (arg s) 2)
+    ))
+
+(defn sigma-L [E V a L]
+(* (/ 2 E) Math/PI (+ (* 2 L) 1) (Math/pow (mag (subt2 1. (s-matrix E V a L)))  2) )
+)
+
+
 
 
