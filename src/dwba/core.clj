@@ -36,17 +36,14 @@
  (def sigmaL-data (->> Ls
                       (mapv (fn[p] [ p (sigma-L 1 ws-stand 3 p)]))))
 
-(-> (b/series [:scatter phase-E-data {:color :red}])
+(defn plot-phase [x] (-> (b/series [:scatter x {:color :red}])
     (b/preprocess-series)
       (b/add-axes :bottom)
       (b/add-axes :left)
     (r/render-lattice {:width 600 :height 300})
     (show))
+ )
 
-(defn plot-data [x] (-> (b/series [:scatter x {:color :blue}])
-       (b/preprocess-series)
-       (b/add-axes :bottom)
-       (b/add-axes :left)
-       (r/render-lattice {:width 600 :height 300})
-       (show))
-)
+
+
+

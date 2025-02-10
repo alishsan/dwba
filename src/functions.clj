@@ -29,14 +29,6 @@
   ( div (mul -1.0 V0) (+ 1.0 (Math/exp (/ (- r R0) a0))))
   )
 
-(defn hankel0+ [L rho]
-(-  (* rho (poly/eval-bessel-t L rho))   (* rho (poly/eval-bessel-t L rho)))
-  )
-
-
-(defn hankel0- [L rho]
-(+  (* rho (poly/eval-bessel-t L rho))   (* rho (poly/eval-bessel-t L rho)))
-  )
 
 (defn r-matrix-a [^double E V  ^double a ^long L]  ;construct R-matrix * a depending on 1D Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
 ;choose u(0) = 0, u'(0) = 1 for initial conditions
