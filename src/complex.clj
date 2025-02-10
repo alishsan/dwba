@@ -50,6 +50,9 @@
   (complex-from-polar (- (arg x) (arg y))
                       (/ (mag x) (mag y))))
 
+(defn pow [t z] "Complex power of a real number"
+  (complex-from-polar (* (im z) (Math/log t)) (Math/pow t (re z)))
+)
 (extend-type java.lang.Number
   ComplexArithmetic
   (re [this]
@@ -66,17 +69,48 @@
 (defn complex-integrate
   "Numerically integrate a complex-valued function f from a to b using n steps.
    Assumes f returns a complex-number instance."
-  [f a b n]
-  (let [h (/ (- b a) n)                              ;; Step size
-        x-values (map #(+ a (* % h)) (range (inc n))) ;; Generate x-values for trapezoidal rule
-        f-values (map f x-values)                     ;; Evaluate f at each x-value
-        ;; Sum the real and imaginary parts separately for integration
-        real-part (apply + (map re f-values))
-        imag-part (apply + (map im f-values))
-        ;; Apply trapezoidal correction (subtracting half at endpoints)
-        corrected-real (- real-part (* 0.5 (+ (re (first f-values)) (re (last f-values)))))
-        corrected-imag (- imag-part (* 0.5 (+ (im (first f-values)) (im (last f-values)))))
-        ;; Multiply by step size and create a complex result
-        ]
-    (complex-from-cartesian (* h corrected-real) (* h corrected-imag))))
+  ([f a b n]
+   (let [h (/ (- b a) n)                              ;; Step size
+         x-values (map #(+ a (* % h)) (range (inc n))) ;; Generate x-values for trapezoidal rule
+         f-values (map f x-values)                     ;; Evaluate f at each x-value
+         ;; Sum the real and imaginary parts separately for integration
+         real-part (apply + (map re f-values))
+         imag-part (apply + (map im f-values))
+         ;; Apply trapezoidal correction (subtracting half at endpoints)
+         corrected-real (- real-part (* 0.5 (+ (re (first f-values)) (re (last f-values)))))
+         corrected-imag (- imag-part (* 0.5 (+ (im (first f-values)) (im (last f-values)))))
+         ;; Multiply by step size and create a complex result
+         ]
+     (complex-from-cartesian (* h corrected-real) (* h corrected-imag))))
 
+ ([f z a b n]
+   (let [h (/ (- b a) n)                              ;; Step size
+         x-values (map #(+ a (* % h)) (range (inc n))) ;; Generate x-values for trapezoidal rule
+         newf (fn [t] (f z t))
+         f-values (map newf x-values)                     ;; Evaluate f at each x-value
+         ;; Sum the real and imaginary parts separately for integration
+         real-part (apply + (map re f-values))
+         imag-part (apply + (map im f-values))
+         ;; Apply trapezoidal correction (subtracting half at endpoints)
+         corrected-real (- real-part (* 0.5 (+ (re (first f-values)) (re (last f-values)))))
+         corrected-imag (- imag-part (* 0.5 (+ (im (first f-values)) (im (last f-values)))))
+         ;; Multiply by step size and create a complex result
+         ]
+     (complex-from-cartesian (* h corrected-real) (* h corrected-imag))))
+)
+
+
+
+(defn afunc [z t] 
+  (Math/pow (Math/log (/ 1. t)) (- z 1))  
+  )
+
+(defn afunc1 [z t]
+  (mul (Math/exp (* -1.0 t)) (pow t (subt z 1)))
+)
+
+
+(defn gamma-complex [z] 
+    
+  (complex-integrate afunc1 z 0.00001 10000 10000)
+)

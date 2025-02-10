@@ -52,7 +52,17 @@ dr (/ a N)]
   (complex-from-cartesian (g-func L rho ) (* -1.0 (f-func L rho)))
   )
 
+(defn CL [eta L] 
+(->   (* Math/PI eta -0.5)
+(* (Math/pow 2 L))
+(mul (gamma-complex  (+ L 1 )))
+)
+)
+;(defn hypergeometric-1F1)
 
+(defn factorial [n]
+(if (= n 1) 1 (* (factorial (- n 1)))
+))
 
 (defn s-matrix [^double E V  ^double a ^long L]
   (let [ra (r-matrix-a E V a L)]
