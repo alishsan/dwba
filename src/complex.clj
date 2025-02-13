@@ -42,9 +42,13 @@
 
 (defn subt [x & y] (reduce subt2 (cons x y)))
 
-(defn mul [x y] "Multiplies the given complex numbers together."
+(defn mul2 [x y] "Multiplies the given complex numbers together."
   (complex-from-polar (+ (arg x) (arg y))
                       (* (mag x) (mag y))))
+
+
+(defn mul [x & y] "Multiplies the given complex numbers together."
+  (reduce mul2 (cons x y)))
 
 (defn div [x y] "Multiplies the given complex numbers together."
   (complex-from-polar (- (arg x) (arg y))
@@ -52,7 +56,13 @@
 
 (defn pow [t z] "Complex power of a real number"
   (complex-from-polar (* (im z) (Math/log t)) (Math/pow t (re z)))
-)
+  )
+
+
+(defn exp [z] "Complex exponential"
+  (complex-from-polar  (im z) (Math/exp (re z)))
+  )
+
 (extend-type java.lang.Number
   ComplexArithmetic
   (re [this]
@@ -101,11 +111,8 @@
 
 
 
-(defn afunc [z t] 
-  (Math/pow (Math/log (/ 1. t)) (- z 1))  
-  )
 
-(defn afunc1 [z t]
+(defn afunc1 [z t] ; used for gamma function
   (mul (Math/exp (* -1.0 t)) (pow t (subt z 1)))
 )
 
@@ -115,3 +122,6 @@
   (complex-integrate afunc1 z 0.00001 1000 10000)
 )
 
+(defn afunc2 [a b z t] ; used for  function
+  (mul (exp (mul -1.0 z t)) (pow z (subt a 1)) (pow (inc z) (subt b a 1)))
+)
