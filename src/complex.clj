@@ -112,5 +112,6 @@
 
 (defn gamma-complex [z] 
     
-  (complex-integrate afunc1 z 0.00001 10000 10000)
+  (complex-integrate afunc1 z 0.00001 1000 10000)
 )
+
