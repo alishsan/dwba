@@ -152,33 +152,26 @@ dr (/ a N)]
                   :else tlo)))))))))
           
 
+(defn rising-factorial
+  "Rising (Pochhammer) factorial."
+  ^double [^double n ^double x]
+  (if (m/integer? n)
+    (m/rising-factorial-int n x)
+    (/ (gamma-complex (+ x n))
+       (gamma-complex x))))
+
+
+(defn pocn
+  [ac ^double b z n]
+   (div (mul (npow z n) (rising-factorial n ac)) (mul (rising-factorial n b) (m/factorial n)))
+)
+
 (defn hypergeometric-complex-1F1
   "Kummer's (confluent hypergeometric, 1F1) function for compex arguments."
-  [ac ^double b xc]
-  (let [a (mag ac) x (mag xc)]
-  (cond
-    (or (m/== a b -1.0)
-        (and (m/neg? b)
-             (m/integer? a)
-             (m/integer? b)
-             (or (m/pos? a)
-                 (and (m/neg? a) (m/< a b))))) ##NaN
-    (m/near-zero? a (m/ulp a)) 1.0
-    (m/zero? b) (m/copy-sign ##Inf (m/* a x))
-    (m/near-zero? x m/MACHINE-EPSILON) 1.0
-    (m/== a b) (m/exp x)
-    (m/== a -1.0) (m/- 1.0 (m// x b))
-    (and (m/one? a) (m/== b 2.0)) (let [hx (m/* 0.5 x)]
-                                    (m/* (m// (m/exp hx) hx) (m/sinh hx)))
-    (m/pos? x) (loop [i (long 1)
-                      s0 1.0
-                      s1 (m/inc (m// (m/* a x) b))]
-                 (if (or (and (m/valid-double? s0) (m/valid-double? s1)
-                              (m/delta-eq s0 s1 m/MACHINE-EPSILON m/MACHINE-EPSILON))
-                         (m/== i 1000000))
-                   s1
-                   (let [rj (m// (m/* (m/+ a i) x) (m/* (m/+ b i) (m/inc i)))]
-                     (recur (m/inc i) s1 (m/+ s1 (m/* (m/- s1 s0) rj))))))
-    :else (hg/weniger-1F1 a b x))))
+  [ac ^double b z]
+ (->> (range 30) (map #(pocn ac b z %)) (reduce add))   
+)
+
+
 
 

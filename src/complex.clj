@@ -54,10 +54,13 @@
   (complex-from-polar (- (arg x) (arg y))
                       (/ (mag x) (mag y))))
 
-(defn pow [t z] "Complex power of a real number"
+(defn cpow [t z] "Complex power of a real number"
   (complex-from-polar (* (im z) (Math/log t)) (Math/pow t (re z)))
   )
 
+(defn npow [z n] "Integer power of a complex number"
+  (complex-from-polar  (* n (arg z)) (Math/pow (mag z) n)) 
+)
 
 (defn exp [z] "Complex exponential"
   (complex-from-polar  (im z) (Math/exp (re z)))
@@ -112,16 +115,18 @@
 
 
 
-(defn afunc1 [z t] ; used for gamma function
-  (mul (Math/exp (* -1.0 t)) (pow t (subt z 1)))
+
+(defn gamma-complex [z]     
+  (complex-integrate 
+ (fn [z t] (mul (Math/exp (* -1.0 t)) (cpow t (subt z 1)))) 
+  z 0.00001 1000 10000)
 )
 
-
-(defn gamma-complex [z] 
-    
-  (complex-integrate afunc1 z 0.00001 1000 10000)
+(defn afunc2 [[a b z] t] ; used for  function
+   (mul (exp (mul -1.0 z t)) (cpow t (subt a 1)) (cpow (inc t) (subt b a 1)))
 )
 
-(defn afunc2 [a b z t] ; used for  function
-  (mul (exp (mul -1.0 z t)) (pow z (subt a 1)) (pow (inc z) (subt b a 1)))
+(defn hypergeometric-complex-U [[a b z]]
+  (div (complex-integrate (fn [[a b z] t] (mul (exp (mul -1.0 z t)) (cpow t (subt a 1)) (cpow (inc t) (subt b a 1))))
+                          [a b z] 0.00001 1000 10000) (gamma-complex a) )
 )
