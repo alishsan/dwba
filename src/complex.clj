@@ -62,9 +62,14 @@
   (complex-from-polar  (* n (arg z)) (Math/pow (mag z) n)) 
 )
 
+
 (defn exp [z] "Complex exponential"
   (complex-from-polar  (im z) (Math/exp (re z)))
   )
+
+
+(defn cpowc [z t] "Complex power of a complex number"
+  (mul (cpow (mag z) t) (exp (mul (complex-from-cartesian 0 (arg z)) t)) )  )
 
 (extend-type java.lang.Number
   ComplexArithmetic

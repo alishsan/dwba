@@ -40,8 +40,8 @@
     (b/preprocess-series)
       (b/add-axes :bottom)
       (b/add-axes :left)
-    (r/render-lattice {:width 600 :height 300})
-    (show))
+      (r/render-lattice {:width 600 :height 300})
+      (show))
  )
 
 

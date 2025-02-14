@@ -172,7 +172,7 @@ dr (/ a N)]
  (->> (range 30) (map #(pocn ac b z %)) (reduce add))   
 )
 
-(defn pocn2F0 ;used for hypergeomtric-2F0
+(defn pocn2F0 ;used for hypergeometric-2F0
   [a1 a2 z n]
   (div (mul (npow z n) (rising-factorial n a1) (rising-factorial n a2)) (m/factorial n))
 )
@@ -183,3 +183,8 @@ dr (/ a N)]
 )
 
 
+(defn hypergeometric-U
+[a b z]
+  (div (hypergeometric-complex-2F0 a ( - (inc a) b )  (div -1. z) )
+    (pow a z)    )
+)
