@@ -126,7 +126,7 @@
    (mul (exp (mul -1.0 z t)) (cpow t (subt a 1)) (cpow (inc t) (subt b a 1)))
 )
 
-(defn hypergeometric-complex-U [[a b z]]
+(defn hypergeometric-complex-U1 [[a b z]] ; Doesn't work for Re z = 0
   (div (complex-integrate (fn [[a b z] t] (mul (exp (mul -1.0 z t)) (cpow t (subt a 1)) (cpow (inc t) (subt b a 1))))
                           [a b z] 0.00001 1000 10000) (gamma-complex a) )
 )
