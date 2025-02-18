@@ -53,10 +53,12 @@ dr (/ a N)]
   (complex-from-cartesian (g-func L rho ) (* -1.0 (f-func L rho)))
   )
 
-(defn CL [eta L] 
+(defn CL [L ^double eta] 
 (->   (* Math/PI eta -0.5)
+(Math/exp)
 (* (Math/pow 2 L))
-(mul (gamma-complex  (+ L 1 )))
+(mul (mag (gamma-complex   (complex-from-cartesian (inc L) eta))))
+(div (m/factorial (inc L)))
 )
 )
 ;(defn hypergeometric-1F1)
@@ -87,104 +89,54 @@ dr (/ a N)]
 )
 
 
-(defn weniger-1F1
-  ^double [^double a ^double b ^double x]
-  (let [absa (m/abs a)
-        zeta (m// x)
-        nlo (m// (m/* b zeta) a)
-        dlo nlo
-        a0 (m/inc a)
-        b0 (m/* 2.0 (m/inc b))
-        b0zeta (m/* b0 zeta)
-        dmid (m/* dlo (m/- b0zeta a0))
-        nmid (m/+ dmid b0zeta)
-        tmid (m// nmid dmid)]
-    (if (m/< (m/abs a0) (m/ulp (m/inc absa)))
-      tmid
-      (let [nmid (m// nmid a0)
-            dmid (m// dmid a0)
-            a0 (m/+ a 2.0)
-            b0 (m/* 6.0 (m/+ b 2.0))
-            b1 (m/* -6.0 b)
-            t0 (m/+ (m/* b0 zeta) (m/* 3.0 a))
-            t1 (m/+ (m/* b1 zeta) (m/* 4.0 a) 2.0)
-            nhi (m/+ (m/* t0 nmid) (m/* t1 nlo) (m/* b1 zeta))
-            dhi (m/+ (m/* t0 dmid) (m/* t1 dlo))
-            thi (m// nhi dhi)]
-        (if (m/< (m/abs a0) (m/ulp (m/+ absa 2.0)))
-         thi
-          (let [nhi (m// nhi a0)
-                dhi (m// dhi a0)]
-            (loop [k (long 2)
-                   tlo 1.0
-                   tmid tmid
-                   thi thi
-                   nlo nlo
-                   nmid nmid
-                   nhi nhi
-                   dlo dlo
-                   dmid dmid
-                   dhi dhi]
-              (if (or (m/< k 5)
-                      (and (m/< k 1048576) (m/> (m/abs (m/- tmid thi))
-                                                (m/* m/MACHINE-EPSILON10 (m/max (m/abs tmid)
-                                                                                (m/abs thi))))))
-                (let [k2 (m/* 2.0 k)
-                      a0 (m/+ a k 1.0)
-                      a2 (m// (m/* (m/- a k -1.0) (m/inc k2)) (m/dec k2))
-                      k42 (m/+ (m/* 4.0 k) 2.0)
-                      b0 (m/* k42 (m/inc (m/+ k b)))
-                      b1 (m/* k42 (m/dec (m/- k b)))
-                      t0 (m/+ (m/* b0 zeta) a2)
-                      t1 (m/+ (m/* b1 zeta) a0)
-                      nnhi (m/- (m/+ (m/* t0 nhi) (m/* t1 nmid)) (m/* a2 nlo))
-                      ndhi (m/- (m/+ (m/* t0 dhi) (m/* t1 dmid)) (m/* a2 dlo))
-                      nthi (m// nnhi ndhi)]
-                  (if (m/< (m/abs a0) (m/ulp (m/inc (m/+ absa k))))
-                    nthi
-                    (recur (m/inc k)
-                           tmid thi nthi
-                           nmid nhi (m// nnhi a0)
-                           dmid dhi (m// ndhi a0))))
-                (cond
-                  (m/valid-double? thi) thi
-                  (m/valid-double? tmid) tmid
-                  :else tlo)))))))))
           
 
 (defn rising-factorial
   "Rising (Pochhammer) factorial."
-  ^double [^double n ^double x]
-  (if (m/integer? n)
-    (m/rising-factorial-int n x)
-    (/ (gamma-complex (+ x n))
-       (gamma-complex x))))
+  [n x]
+    (div (gamma-complex (add x n))
+             (gamma-complex x)))
 
 
 (defn pocn
-  [ac ^double b z n]
+  [ac b z n]
    (div (mul (npow z n) (rising-factorial n ac)) (mul (rising-factorial n b) (m/factorial n)))
 )
 
 (defn hypergeometric-complex-1F1
   "Kummer's (confluent hypergeometric, 1F1) function for compex arguments."
-  [ac ^double b z]
- (->> (range 30) (map #(pocn ac b z %)) (reduce add))   
+  [ac b z]
+ (->> (range 20) (map #(pocn ac b z %)) (reduce add))   
 )
+
 
 (defn pocn2F0 ;used for hypergeometric-2F0
   [a1 a2 z n]
-  (div (mul (npow z n) (rising-factorial n a1) (rising-factorial n a2)) (m/factorial n))
+  (div  (mul  (npow z n)  (rising-factorial n a1) (rising-factorial n a2)) (m/factorial n))
 )
 
 (defn hypergeometric-complex-2F0
 [a1 a2 z]
- (->> (range 30) (map #(pocn2F0 a1 a2 z %)) (reduce add))   
+ (->> (range 20) (map #(pocn2F0 a1 a2 z %)) (reduce add))   
 )
 
+(defn coulomb-F [L eta r]
+(mul (CL L eta) (m/pow r (inc L)) (complex-from-polar (- r) 1)
+     (hypergeometric-complex-1F1 (complex-from-cartesian (inc L) (- eta)) (* 2 (inc L)) (complex-from-cartesian 0 (* 2 r) )
+                                 )
+     ))
 
 (defn hypergeometric-U
-[a b z]
+  [a b z]
   (div (hypergeometric-complex-2F0 a ( - (inc a) b )  (div -1. z) )
-    (pow a z)    )
-)
+       (cpowc  z a)    )
+  )
+
+(defn hypergeometric-complex-U
+[a b z]
+  (mul (div Math/PI (Math/sin (* Math/PI b)))  (subt (div (hypergeometric-complex-1F1 a b z) (mul
+                                                                                  (gamma-complex (subt (add a 1) b)) (gamma-complex b))) 
+                                         (mul (cpowc z (dec b)) (div (hypergeometric-complex-1F1  (subt (add a 1) b)  (- b 2) z) (mul (gamma-complex  a)  (gamma-complex (subt b 2))) ))))
+
+;  (div   (hypergeometric-complex-1F1 a (- b 2) z)      (mul (gamma-complex (subt b 2)) (gamma-complex a))) 
+  )
