@@ -1,6 +1,7 @@
 (ns dwba.core
 ( :require
 [fastmath.core :as m]
+[fastmath.vector :as v]
  [fastmath.polynomials :as poly]
   [fastmath.special :as spec]
 [cljplot.render :as r]
