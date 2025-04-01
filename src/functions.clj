@@ -3,7 +3,8 @@
 [fastmath.core :as m]
 [fastmath.polynomials :as poly]
  [fastmath.special.hypergeometric :as hg]
-  [fastmath.special :as spec]
+ [fastmath.special :as spec]
+   [fastmath.vector :as v]
 ))
 (use 'complex)
 
@@ -117,8 +118,9 @@ dr (/ a N)]
 
 (defn hypergeometric-complex-2F0
 [a1 a2 z]
- (->> (range 20) (map #(pocn2F0 a1 a2 z %)) (reduce add))   
-)
+ ;(->> (range 20) (map #(pocn2F0 a1 a2 z %)) (reduce add))   
+  (spec/hypergeometric-pFq-complex [a1 a2] [] z)
+  )
 
 (defn coulomb-F [L eta r]
 (mul (CL L eta) (m/pow r (inc L)) (complex-from-polar (- r) 1)
