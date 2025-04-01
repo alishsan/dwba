@@ -2,7 +2,8 @@
 ( :require
 [fastmath.core :as m]
  [fastmath.polynomials :as poly]
-  [fastmath.special :as spec]
+ [fastmath.special :as spec]
+   [fastmath.vector :as v]
 [cljplot.render :as r]
 [cljplot.build :as b]
 [cljplot.core :refer [save xy-chart show]]
