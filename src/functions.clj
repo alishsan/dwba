@@ -137,6 +137,14 @@ dr (/ a N)]
     (cpowc  z a))    
   )
 
+(defn Hankel+ [L, eta, rho]
+  ( hypergeometric-complex-U (complex-from-cartesian (inc L) eta) (* 2 (inc L)) (complex-from-cartesian 0 (* -2.0 rho)))
+)
+
+(defn Hankel- [L, eta, rho]
+  ( hypergeometric-complex-U (complex-from-cartesian (inc L) (* -1.0 eta)) (* 2 (inc L)) (complex-from-cartesian 0 (* 2.0 rho)))
+)
+
 (defn hypergeometric-complex-U2
 [a b z]
   (mul (div Math/PI (Math/sin (* Math/PI b)))  (subt (div (hypergeometric-complex-1F1 a b z) (mul
