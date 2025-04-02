@@ -34,7 +34,8 @@
   )
 
 
-(defn r-matrix-a [^double E V  ^double a ^long L]  ;construct R-matrix * a depending on 1D Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
+(defn r-matrix-a ;h-bar and speed of light c are set to 1
+  [^double E V  ^double a ^long L]  ;no coulomb ;construct R-matrix * a depending on 1D Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
 ;choose u(0) = 0, u'(0) = 1 for initial conditions
 (let [N  1000
 dr (/ a N)]
@@ -43,6 +44,18 @@ dr (/ a N)]
 (/ ur dudr) ;Ra = u/dudr  (dudr = d2udr2 * dr)
 (recur  (+ x dr) (WS x V) (*  (+ (/ (* L (inc L)) (* x x)) (-  pot E)) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
 )))
+
+   (defn r-matrix [^double E V ^long L ^double eta]  ;with coulomb ;construct R-matrix * a depending on 1D Coulomb + Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
+;choose u(0) = 0, u'(0) = 1 for initial conditions
+     (let [N  1000
+           a (* 2 (second V))
+dr (/ a N)]
+(loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
+(if (> x a)
+(/ ur dudr) ;Ra = u/dudr  (dudr = d2udr2 * dr)
+(recur  (+ x dr) (WS x V) (*  (+ (/ (* L (inc L)) (* x x)) (-  pot E)) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
+)))
+  
 
 
 (defn f-func [L rho] (* rho (spec/spherical-bessel-j L rho)))
@@ -138,12 +151,23 @@ dr (/ a N)]
   )
 
 (defn Hankel+ [L, eta, rho]
-  ( hypergeometric-complex-U (complex-from-cartesian (inc L) eta) (* 2 (inc L)) (complex-from-cartesian 0 (* -2.0 rho)))
-)
+  (let [sigmal (arg (apply complex-from-cartesian (spec/gamma-complex (v/vec2 (inc L) eta))))
+        theta (+ rho (* L Math/PI -0.5) sigmal (* eta -1.0 (Math/log (* 2 rho))))
+  a (complex-from-cartesian (inc L)  eta)
+        ]
+    (mul (complex-from-polar theta 1)
+            (cpowc (complex-from-cartesian 0 (* -2 rho)) a) 
+  ( hypergeometric-complex-U a (* 2 (inc L)) (complex-from-cartesian 0 (* -2.0 rho)))
+)))
 
 (defn Hankel- [L, eta, rho]
-  ( hypergeometric-complex-U (complex-from-cartesian (inc L) (* -1.0 eta)) (* 2 (inc L)) (complex-from-cartesian 0 (* 2.0 rho)))
-)
+   (let [sigmal (arg (apply complex-from-cartesian (spec/gamma-complex (v/vec2 (inc L) eta))))
+         theta (+ rho (* L Math/PI -0.5) sigmal (* eta -1.0 (Math/log (* 2 rho))))
+         a (complex-from-cartesian (inc L) (* -1.0 eta))]
+     (mul (complex-from-polar (* -1.0 theta) 1)
+          (cpowc (complex-from-cartesian 0 (* 2 rho)) a) 
+  ( hypergeometric-complex-U a (* 2 (inc L)) (complex-from-cartesian 0 (* 2.0 rho)))
+)))
 
 (defn hypergeometric-complex-U2
 [a b z]
