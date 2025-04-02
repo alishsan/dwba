@@ -130,14 +130,14 @@ dr (/ a N)]
                                  )
      ))
 
-(defn hypergeometric-U
+(defn hypergeometric-complex-U
   [a b z]
   (div 
    (apply complex-from-cartesian  (hypergeometric-complex-2F0 a ( subt  a b -1.)  (div -1. z) ))
     (cpowc  z a))    
   )
 
-(defn hypergeometric-complex-U
+(defn hypergeometric-complex-U2
 [a b z]
   (mul (div Math/PI (Math/sin (* Math/PI b)))  (subt (div (hypergeometric-complex-1F1 a b z) (mul
                                                                                   (gamma-complex (subt (add a 1) b)) (gamma-complex b))) 
