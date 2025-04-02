@@ -1,3 +1,4 @@
+
 (ns functions
 (:require
 [fastmath.core :as m]
@@ -15,6 +16,7 @@
   ([fn1 L x dx] ;for hankel functions with L dependence and complex numbers
    (div (subt2 (fn1 L (+ x dx)) (fn1 L x)) dx)))
 
+(defn to-vec2 [x] (v/vec2 (re x) (im x)))
 
 (defn distorted-wave [k r]
   "Returns the distorted wave function at distance r for wavenumber k."
@@ -119,7 +121,7 @@ dr (/ a N)]
 (defn hypergeometric-complex-2F0
 [a1 a2 z]
  ;(->> (range 20) (map #(pocn2F0 a1 a2 z %)) (reduce add))   
-  (spec/hypergeometric-pFq-complex [a1 a2] [] z)
+  (spec/hypergeometric-pFq-complex [(to-vec2 a1) (to-vec2 a2)] [] (to-vec2 z))
   )
 
 (defn coulomb-F [L eta r]
@@ -130,8 +132,9 @@ dr (/ a N)]
 
 (defn hypergeometric-U
   [a b z]
-  (div (hypergeometric-complex-2F0 a ( - (inc a) b )  (div -1. z) )
-       (cpowc  z a)    )
+  (div 
+   (apply complex-from-cartesian  (hypergeometric-complex-2F0 a ( subt  a b -1.)  (div -1. z) ))
+    (cpowc  z a))    
   )
 
 (defn hypergeometric-complex-U
