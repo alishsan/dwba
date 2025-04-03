@@ -15,18 +15,13 @@
 
 (def xs (range 0.1 5.1 0.01))
 
-(def hbarc 197.7)
-(def mu 745)
 
-; E, V are multiplied by 2mu/(hbar)^2 to take into account the mass
-; for neutron-alpha pair mu = 0.8 amu = 745 MeV/c^2 , 2mu/(hbar)^2 = 0.038 /(MeV fm^2)
-(def mass-factor (/ (* 2 mu) hbarc hbarc ))
 
-(def Es (map #(* mass-factor %) (range 1 51 1)))
+(def Es  (range 1 51 1))
 
-(def ws-stand [(* mass-factor 40) 1.0 0.65]) ;standard WS function parameters, plus mass factor for R matrix equation
+(def ws-stand [40 1.0 0.65]) ;standard WS function parameters
 (def phase-data (->> xs
-                     (mapv (fn[p] [ p (r-matrix-a 1 ws-stand p 0)]))))
+                     (mapv (fn[p] [ p (r-matrix 1 ws-stand p 0)]))))
 
 (def phase-E-data (->> Es
                        (mapv (fn[p] [ p (re (phase-shift0 p ws-stand 3. 0))]))))

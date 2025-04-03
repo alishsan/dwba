@@ -9,6 +9,11 @@
 ))
 (use 'complex)
 
+(def hbarc 197.7) ;MeV-fm
+(def mu 745) ;MeV/c^2
+
+
+(def mass-factor (/ (* 2 mu) hbarc hbarc ))
 
 (defn deriv
   ([fn1 x dx]
@@ -46,7 +51,7 @@ dr (/ a N)]
 (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
 (if (> x a)
 (/ ur dudr) ;Ra = u/dudr  (dudr = d2udr2 * dr)
-(recur  (+ x dr) (WS x V) (*  (+ (/ (* L (inc L)) (* x x)) (-  pot E)) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
+(recur  (+ x dr) (WS x V) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
 )))
 
 (defn Coulomb-pot [r r0] ; potential of a uniformly charged sphere of charge e and radius r0
@@ -179,15 +184,18 @@ dr (/ a N)]
 (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
 (if (> x a)
 (/ ur dudr) ;Ra = u/dudr  (dudr = d2udr2 * dr)
-(recur  (+ x dr) (+ (Coulomb-pot x R0) (WS x V)) (*  (+ (/ (* L (inc L)) (* x x)) (-  pot E)) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
+(recur  (+ x dr) (+ (Coulomb-pot x R0) (WS x V)) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
 )))
 
-(defn s-matrix [^double E V  ^double eta ^long L]
+(defn s-matrix [^double E V ^long L]
   (let [a (* 2  (+ (second V) (last V)))
-        ra (mul a (r-matrix E V L))
+        k (m/sqrt (*  mass-factor E))
+        R (r-matrix E V L)
+        eta (* 1.44 mass-factor (/ 1. k))
+        rho (* k a)
         ]
-    (div (subt2 (Hankel- L eta a) (mul ra (deriv Hankel- L a 0.000001)) )
-         (subt2 (Hankel+ L eta a) (mul ra (deriv Hankel+ L a 0.000001)) ))
+    (div (subt2 (Hankel- L eta rho) (mul rho R (deriv Hankel- L rho 0.0000001)) )
+         (subt2 (Hankel+ L eta rho) (mul rho R (deriv Hankel+ L rho 0.0000001)) ))
  ))
 
 (defn hypergeometric-complex-U2
