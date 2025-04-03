@@ -173,7 +173,8 @@ dr (/ a N)]
 ;choose u(0) = 0, u'(0) = 1 for initial conditions
      (let [N  1000
            R0 (second V)
-           a (* 2 R0)
+           a0 (last V)
+           a (* 2 (+ R0 a0))
            dr (/ a N)]
 (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
 (if (> x a)
@@ -182,7 +183,7 @@ dr (/ a N)]
 )))
 
 (defn s-matrix [^double E V  ^double eta ^long L]
-  (let [a (* 2  (second V))
+  (let [a (* 2  (+ (second V) (last V)))
         ra (mul a (r-matrix E V L))
         ]
     (div (subt2 (Hankel- L eta a) (mul ra (deriv Hankel- L a 0.000001)) )
