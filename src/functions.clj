@@ -194,9 +194,19 @@ dr (/ a N)]
         eta (* 1.44 mass-factor (/ 1. k))
         rho (* k a)
         ]
-    (div (subt2 (Hankel- L eta rho) (mul rho R (deriv Hankel- L rho 0.0000001)) )
-         (subt2 (Hankel+ L eta rho) (mul rho R (deriv Hankel+ L rho 0.0000001)) ))
+    (div (subt2 (Hankel- L eta rho) (mul rho R (deriv Hankel- L eta rho 0.0000001)) )
+         (subt2 (Hankel+ L eta rho) (mul rho R (deriv Hankel+ L eta rho 0.0000001)) ))
  ))
+
+(defn phase-shift  [^double E V  ^long L ]
+  (let [s (s-matrix E V L)]
+    (/ (arg s) 2)
+    ))
+
+(defn ftheta-L [^double E V  ^long L theta]
+                (let [k  (m/sqrt (*  mass-factor E))]
+ (mul (div (complex-from-cartesian 0 -1) k) (inc (* 2 L))  (poly/eval-legendre-P L (m/cos theta)) (subt  (s-matrix E V L) 1.)
+                )))
 
 (defn hypergeometric-complex-U2
 [a b z]
