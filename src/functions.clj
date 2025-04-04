@@ -15,6 +15,8 @@
 
 (def mass-factor (/ (* 2 mu) hbarc hbarc ))
 
+(def Z1Z2ee (* 2 1.44));Z1Z2 e^2 (MeV fm)
+
 (defn deriv
   ([fn1 x dx]
    (/ (- (fn1 (+ x dx)) (fn1 x)) dx))
@@ -46,8 +48,8 @@
 (defn xi ;h-bar and speed of light c are set to 1
   [^double E V  ^double a ^long L]  ;no coulomb ;construct R-matrix * a depending on 1D Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
 ;choose u(0) = 0, u'(0) = 1 for initial conditions
-(let [N  1000
-dr (/ a N)]
+(let [
+dr 0.00001]
   (loop [x dr pot 0 d2udr2 (/ 1. dr) 
 dudr dr
  ur (* dudr dr) accum []]
@@ -59,16 +61,16 @@ accum
 (defn r-matrix-a 
   [^double E V  ^double a ^long L]  ;no coulomb ;construct R-matrix * a depending on 1D Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
 ;choose u(0) = 0, u'(0) = 1 for initial conditions
-(let [N  1000
-dr (/ a N)]
+(let [
+dr 0.00001]
 (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
 (if (> x a)
 (/ ur dudr) ;Ra = u/dudr  (dudr = d2udr2 * dr)
 (recur  (+ x dr) (WS x V) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
 )))
 
-(defn Coulomb-pot [Z1Z2 r r0] ; potential of a uniformly charged sphere of charge e and radius r0
-  (if (> r r0) (/ (* Z1Z2 1.44) r) (* r (/ (* Z1Z2 1.44) r0 r0)))
+(defn Coulomb-pot [ r r0] ; potential of a uniformly charged sphere of charge e and radius r0
+  (if (> r r0) (/  Z1Z2ee r) (* r (/ Z1Z2ee r0 r0)))
 
   ) 
   
@@ -191,11 +193,11 @@ dr (/ a N)]
 
 (defn r-matrix ([^double E V ^long L ]  ;with coulomb ;construct R-matrix * a depending on 1D Coulomb + Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
                                         ;choose u(0) = 0, u'(0) = 1 for initial conditions
-                (let [N  1000
+                (let [
                       R0 (second V)
                       a0 (last V)
                       a (* 2 (+ R0 a0))
-                      dr (/ a N)]
+                      dr 0.00001]
                   (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
                     (if (> x a)
                       (/ ur dudr a); R = ur/ (a dudr) 
@@ -203,10 +205,10 @@ dr (/ a N)]
                     )))
 ([^double E V a ^long L ]  ;with coulomb ;construct R-matrix * a depending on 1D Coulomb + Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
                                         ;choose u(0) = 0, u'(0) = 1 for initial conditions
-                (let [N  1000
+                (let [
                       R0 (second V)
                       a0 (last V)
-                      dr (/ a N)]
+                      dr 0.00001]
                   (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
                     (if (> x a)
                       (/ ur dudr a); R = ur/ (a dudr) 
@@ -218,7 +220,7 @@ dr (/ a N)]
                 (let [a (* 2  (+ (second V) (last V)))
                       k (m/sqrt (*  mass-factor E))
                       R (r-matrix E V a L)
-                      eta (* 1.44 0 mass-factor (/ 1. k))
+                      eta (* Z1Z2ee mass-factor (/ 1. k))
                       rho (* k a)
                       ]
                   (div (subt2 (Hankel- L eta rho) (mul rho R (deriv Hankel- L eta rho 0.0000001)) )
@@ -228,8 +230,8 @@ dr (/ a N)]
  ([^double E V ^double a ^long L]
                 (let [
                       k (m/sqrt (*  mass-factor E))
-                      R (r-matrix E V a L)
-                      eta (* 1.44 mass-factor (/ 1. k))
+                      R (/ (r-matrix-a E V a L) a)
+                      eta (* Z1Z2ee mass-factor (/ 1. k))
                       rho (* k a)
                       ]
                   (div (subt2 (Hankel- L eta rho) (mul rho R (deriv Hankel- L eta rho 0.0000001)) )
