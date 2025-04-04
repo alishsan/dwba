@@ -43,7 +43,20 @@
   )
 
 
-(defn r-matrix-a ;h-bar and speed of light c are set to 1
+(defn xi ;h-bar and speed of light c are set to 1
+  [^double E V  ^double a ^long L]  ;no coulomb ;construct R-matrix * a depending on 1D Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
+;choose u(0) = 0, u'(0) = 1 for initial conditions
+(let [N  1000
+dr (/ a N)]
+  (loop [x dr pot 0 d2udr2 (/ 1. dr) 
+dudr dr
+ ur (* dudr dr) accum []]
+(if (> x a)
+accum
+(recur  (+ x dr) (WS x V) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr)) (into accum [[x ur]])) ) 
+)))
+
+(defn r-matrix-a 
   [^double E V  ^double a ^long L]  ;no coulomb ;construct R-matrix * a depending on 1D Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
 ;choose u(0) = 0, u'(0) = 1 for initial conditions
 (let [N  1000
@@ -54,8 +67,8 @@ dr (/ a N)]
 (recur  (+ x dr) (WS x V) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
 )))
 
-(defn Coulomb-pot [r r0] ; potential of a uniformly charged sphere of charge e and radius r0
-  (if (> r r0) (/ 1.44 r) (* r (/ 1.44 r0 r0)))
+(defn Coulomb-pot [Z1Z2 r r0] ; potential of a uniformly charged sphere of charge e and radius r0
+  (if (> r r0) (/ (* Z1Z2 1.44) r) (* r (/ (* Z1Z2 1.44) r0 r0)))
 
   ) 
   
@@ -87,9 +100,11 @@ dr (/ a N)]
 ))
 
 (defn s-matrix0 [^double E V  ^double a ^long L]
-  (let [ra (r-matrix-a E V a L)]
-    (div (subt2 (hankel0- L a) (mul ra (deriv hankel0- L a 0.000001)) )
-         (subt2 (hankel0+ L a) (mul ra (deriv hankel0+ L a 0.000001)) ))
+  (let [ra (r-matrix-a E V a L)
+         k (m/sqrt (*  mass-factor E))
+        rho (* k a)]
+    (div (subt2 (hankel0- L rho) (mul ra k (deriv hankel0- L rho 0.000001)) )
+         (subt2 (hankel0+ L rho) (mul ra k (deriv hankel0+ L rho 0.000001)) ))
  ))
 
 
@@ -174,29 +189,53 @@ dr (/ a N)]
   ( hypergeometric-complex-U a (* 2 (inc L)) (complex-from-cartesian 0 (* 2.0 rho)))
 )))
 
-   (defn r-matrix [^double E V ^long L ]  ;with coulomb ;construct R-matrix * a depending on 1D Coulomb + Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
-;choose u(0) = 0, u'(0) = 1 for initial conditions
-     (let [N  1000
-           R0 (second V)
-           a0 (last V)
-           a (* 2 (+ R0 a0))
-           dr (/ a N)]
-(loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
-(if (> x a)
-(/ ur dudr) ;Ra = u/dudr  (dudr = d2udr2 * dr)
-(recur  (+ x dr) (+ (Coulomb-pot x R0) (WS x V)) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
-)))
+(defn r-matrix ([^double E V ^long L ]  ;with coulomb ;construct R-matrix * a depending on 1D Coulomb + Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
+                                        ;choose u(0) = 0, u'(0) = 1 for initial conditions
+                (let [N  1000
+                      R0 (second V)
+                      a0 (last V)
+                      a (* 2 (+ R0 a0))
+                      dr (/ a N)]
+                  (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
+                    (if (> x a)
+                      (/ ur dudr a); R = ur/ (a dudr) 
+                      (recur  (+ x dr) (+ (Coulomb-pot 0 x R0) (WS x V)) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
+                    )))
+([^double E V a ^long L ]  ;with coulomb ;construct R-matrix * a depending on 1D Coulomb + Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
+                                        ;choose u(0) = 0, u'(0) = 1 for initial conditions
+                (let [N  1000
+                      R0 (second V)
+                      a0 (last V)
+                      dr (/ a N)]
+                  (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
+                    (if (> x a)
+                      (/ ur dudr a); R = ur/ (a dudr) 
+                      (recur  (+ x dr) (+ (Coulomb-pot 0 x R0) (WS x V)) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
+                    )))
+)
 
-(defn s-matrix [^double E V ^long L]
-  (let [a (* 2  (+ (second V) (last V)))
-        k (m/sqrt (*  mass-factor E))
-        R (r-matrix E V L)
-        eta (* 1.44 mass-factor (/ 1. k))
-        rho (* k a)
-        ]
-    (div (subt2 (Hankel- L eta rho) (mul rho R (deriv Hankel- L eta rho 0.0000001)) )
-         (subt2 (Hankel+ L eta rho) (mul rho R (deriv Hankel+ L eta rho 0.0000001)) ))
- ))
+(defn s-matrix ([^double E V ^long L]
+                (let [a (* 2  (+ (second V) (last V)))
+                      k (m/sqrt (*  mass-factor E))
+                      R (r-matrix E V a L)
+                      eta (* 1.44 0 mass-factor (/ 1. k))
+                      rho (* k a)
+                      ]
+                  (div (subt2 (Hankel- L eta rho) (mul rho R (deriv Hankel- L eta rho 0.0000001)) )
+                       (subt2 (Hankel+ L eta rho) (mul rho R (deriv Hankel+ L eta rho 0.0000001)) ))
+                  ))
+
+ ([^double E V ^double a ^long L]
+                (let [
+                      k (m/sqrt (*  mass-factor E))
+                      R (r-matrix E V a L)
+                      eta (* 1.44 mass-factor (/ 1. k))
+                      rho (* k a)
+                      ]
+                  (div (subt2 (Hankel- L eta rho) (mul rho R (deriv Hankel- L eta rho 0.0000001)) )
+                       (subt2 (Hankel+ L eta rho) (mul rho R (deriv Hankel+ L eta rho 0.0000001)) ))
+                  ))
+)
 
 (defn phase-shift  [^double E V  ^long L ]
   (let [s (s-matrix E V L)]
