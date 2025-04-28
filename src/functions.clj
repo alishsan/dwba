@@ -15,7 +15,9 @@
 
 (def mass-factor (/ (* 2 mu) hbarc hbarc ))
 
-(def Z1Z2ee (* 2 1.44));Z1Z2 e^2 (MeV fm)
+(def Z1Z2ee 0);Z1Z2 e^2 (MeV fm)
+;(def Z1Z2ee (* 2 1.44));Z1Z2 e^2 (MeV fm)
+
 
 (defn deriv
   ([fn1 x dx]
@@ -26,6 +28,7 @@
   ([fn1 L eta x dx] ;for hankel functions with L dependence and complex numbers
    (div (subt2 (fn1 L eta (+ x dx)) (fn1 L eta x)) dx))
 )
+(defn subtract-second [a b] [(first a) (- (second a) (second b))])
 
 (defn to-vec2 [x] (v/vec2 (re x) (im x)))
 
@@ -69,9 +72,10 @@ dr 0.00001]
 (recur  (+ x dr) (WS x V) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
 )))
 
-(defn Coulomb-pot [ r r0] ; potential of a uniformly charged sphere of charge e and radius r0
-  (if (> r r0) (/  Z1Z2ee r) (* r (/ Z1Z2ee r0 r0)))
-
+(defn Coulomb-pot ([ r r0] ; potential of a uniformly charged sphere of charge e and radius r0
+                   (if (> r r0) (/  Z1Z2ee r) (* r (/ Z1Z2ee r0 r0))))
+   ([Ze r r0] ; potential of a uniformly charged sphere of charge e and radius r0
+  (if (> r r0) (/  Ze r) (* r (/ Ze r0 r0))))
   ) 
   
 
@@ -201,7 +205,7 @@ dr 0.00001]
                   (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
                     (if (> x a)
                       (/ ur dudr a); R = ur/ (a dudr) 
-                      (recur  (+ x dr) (+ (Coulomb-pot 0 x R0) (WS x V)) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
+                      (recur  (+ x dr) (+ (Coulomb-pot x R0) (WS x V)) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
                     )))
 ([^double E V a ^long L ]  ;with coulomb ;construct R-matrix * a depending on 1D Coulomb + Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
                                         ;choose u(0) = 0, u'(0) = 1 for initial conditions
@@ -212,7 +216,7 @@ dr 0.00001]
                   (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
                     (if (> x a)
                       (/ ur dudr a); R = ur/ (a dudr) 
-                      (recur  (+ x dr) (+ (Coulomb-pot 0 x R0) (WS x V)) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
+                      (recur  (+ x dr) (+ (Coulomb-pot x R0) (WS x V)) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
                     )))
 )
 
@@ -239,10 +243,15 @@ dr 0.00001]
                   ))
 )
 
-(defn phase-shift  [^double E V  ^long L ]
+(defn phase-shift ( [^double E V  ^long L ]
   (let [s (s-matrix E V L)]
     (/ (arg s) 2)
     ))
+ ( [^double E V a  ^long L ]
+  (let [s (s-matrix E V a L)]
+    (/ (arg s) 2)
+    ))
+  )
 
 (defn ftheta-L [^double E V  ^long L theta]
                 (let [k  (m/sqrt (*  mass-factor E))]
