@@ -1,4 +1,3 @@
-
 (ns functions
 (:require
 [fastmath.core :as m]
@@ -13,10 +12,11 @@
 (def mu 745) ;MeV/c^2
 
 
-(def mass-factor (/ (* 2 mu) hbarc hbarc ))
+(def mass-factor (/ (* 2 mu) hbarc hbarc )); mass-factor * E = k^2
 
-(def Z1Z2ee 0);Z1Z2 e^2 (MeV fm)
-;(def Z1Z2ee (* 2 1.44));Z1Z2 e^2 (MeV fm)
+
+(def Z1Z2ee (* 2 1.44) ; alpha and proton
+  );Z1Z2 e^2 (MeV fm)
 
 
 (defn deriv
@@ -123,7 +123,7 @@ dr 0.00001]
 
 (defn phase-shift0  [^double E V  ^double a ^long L ]
   (let [s (s-matrix0 E V a L)]
-    (div (arg s) 2)
+    (/ (arg s) 2)
     ))
 
 (defn sigma-L0 [E V a L]
@@ -200,14 +200,17 @@ dr 0.00001]
                 (let [
                       R0 (second V)
                       a0 (last V)
-                      a (* 2 (+ R0 a0))
+                      a (* 3 (+ R0 a0)) ; a outside of the nuclear range
                       dr 0.00001]
                   (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
                     (if (> x a)
                       (/ ur dudr a); R = ur/ (a dudr) 
+
                       (recur  (+ x dr) (+ (Coulomb-pot x R0) (WS x V)) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
+
+
                     )))
-([^double E V a ^long L ]  ;with coulomb ;construct R-matrix * a depending on 1D Coulomb + Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
+([^double E V a ^long L ]  ;construct R-matrix * a depending on 1D Coulomb + Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
                                         ;choose u(0) = 0, u'(0) = 1 for initial conditions
                 (let [
                       R0 (second V)
@@ -216,7 +219,10 @@ dr 0.00001]
                   (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
                     (if (> x a)
                       (/ ur dudr a); R = ur/ (a dudr) 
+
                       (recur  (+ x dr) (+ (Coulomb-pot x R0) (WS x V)) (*  (+ (/ (* L (inc L)) (* x x)) (* mass-factor (-  pot E))) ur) (+ dudr (* d2udr2 dr))  (+ ur (* dudr dr))) ) 
+
+
                     )))
 )
 
@@ -224,7 +230,7 @@ dr 0.00001]
                 (let [a (* 2  (+ (second V) (last V)))
                       k (m/sqrt (*  mass-factor E))
                       R (r-matrix E V a L)
-                      eta (* Z1Z2ee mass-factor (/ 1. k))
+                      eta (* Z1Z2ee (/ mass-factor k 2))
                       rho (* k a)
                       ]
                   (div (subt2 (Hankel- L eta rho) (mul rho R (deriv Hankel- L eta rho 0.0000001)) )
@@ -235,13 +241,14 @@ dr 0.00001]
                 (let [
                       k (m/sqrt (*  mass-factor E))
                       R (/ (r-matrix-a E V a L) a)
-                      eta (* Z1Z2ee mass-factor (/ 1. k))
+                      eta (* Z1Z2ee mass-factor (/ 1. k 2))
                       rho (* k a)
                       ]
                   (div (subt2 (Hankel- L eta rho) (mul rho R (deriv Hankel- L eta rho 0.0000001)) )
                        (subt2 (Hankel+ L eta rho) (mul rho R (deriv Hankel+ L eta rho 0.0000001)) ))
                   ))
 )
+
 
 (defn phase-shift ( [^double E V  ^long L ]
   (let [s (s-matrix E V L)]
@@ -252,6 +259,8 @@ dr 0.00001]
     (/ (arg s) 2)
     ))
   )
+
+
 
 (defn ftheta-L [^double E V  ^long L theta]
                 (let [k  (m/sqrt (*  mass-factor E))]
