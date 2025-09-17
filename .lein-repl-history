@@ -1,0 +1,95 @@
+m
+complex
+'complex
+(v/magsq 4 5)
+exit
+(require '[fastmath.core :as m])
+(require '[fastmath.vectors :as m])
+(require '[fastmath.vector :as m])
+(require '[fastmath.vector :as v])
+(require '[fastmath.core :as m])
+(v/mag [1 2 3])
+(require '[fastmath.polynomials :as poly])
+exit
+(require '[fastmath.polynomials :as poly])
+exit
+(require '[fastmath.polynomials :as poly])
+(poly/eval-legendre-P 4. 5.)
+(poly/legendre-P 4.)
+(poly/legendre-P 1.)
+(first (poly/legendre-P 1.))
+(poly/evaluate (poly/legendre-P 1.) 4)
+exit
+poly
+(poly/evaluate (poly/legendre-P 1.) 4)
+exit
+(plot/plot {:x (range 10) :y (map #(* % %) (range 10))})
+(require '[cljplot.core :as plot])
+exit
+(plot/plot {:x (range 10) :y (map #(* % %) (range 10))})
+exit
+(def my-data {:x [1 2 3 4 5]
+              :y [10 15 8 12 20]})
+(plot/xy-chart {:title "My Sample Plot"}
+               my-data)
+(xy-chart {:title "My Sample Plot"}
+               my-data)
+(show (xy-chart {:title "My Sample Plot"}
+               my-data))
+(let [chart (plot/xy-chart {:title "My Sample Plot"} my-data)]
+  ;; Save the chart as an image
+  (plot/save chart "output/my-plot.png")
+  
+  ;; Show the chart interactively
+  (plot/show chart))
+(let [chart (xy-chart {:title "My Sample Plot"} my-data)]
+  (save chart "output/my-plot.png")
+  (show chart))
+exit
+(in-ns plot)
+(in-ns complex)
+exit
+(in-ns hanami)
+(in-ns dwba/hanami)
+(in-ns dwba.hanami)
+exit
+(in-ns 'plot)
+my-data
+plot
+exit
+ys
+exit
+deriv
+(hankel0+ 0 1)
+(hankel0- 0 1)
+(hankel0- 0 1.001)
+exit
+deriv
+(macroexpand 'deriv)
+(macroexpand deriv)
+exit
+deriv
+(macroexpand deriv)
+(defmacro infix
+  "Use this macro when you pine for the notation of your childhood"
+  [infixed]
+  (list (second infixed) (first infixed) (last infixed)))
+(defmacro infix
+  [infixed1 inf2 inf 3]
+))
+(defmacro infix
+  [infixed1 inf2 inf3]
+  (list inf2 infix1 inf3))
+(defmacro infix
+  [inf1 inf2 inf3]
+  (list inf2 inf1 inf3))
+(infix 2 + 3)
+(defmacro infix-2
+  [[operand1 op operand2]]
+  (list op operand1 operand2))
+(infix-2 2 + 3)
+(infix-2 (2 + 3))
+exit
+deriv
+exit
+(use 'complex)
