@@ -1,0 +1,57 @@
+{
+  "experimental_data": {
+    "entry": "D0557",
+    "title": "Elastic scattering cross section of proton from helium at 165°",
+    "authors": ["Y.F.Lu", "L.Q.Shi", "Z.J.He", "L.Zhang", "B.Zhang", "R.Hutton"],
+    "institute": "3CPRFUD (Fudan University)",
+    "angle": 165.0,
+    "angle_error": 7.3,
+    "energy_range": [1.6, 3.6],
+    "data_points": [
+      {"energy": 1.6, "cross_section": 0.193, "unit": "b/sr"},
+      {"energy": 1.7, "cross_section": 0.196, "unit": "b/sr"},
+      {"energy": 1.8, "cross_section": 0.211, "unit": "b/sr"},
+      {"energy": 1.9, "cross_section": 0.237, "unit": "b/sr"},
+      {"energy": 2.0, "cross_section": 0.254, "unit": "b/sr"},
+      {"energy": 2.1, "cross_section": 0.263, "unit": "b/sr"},
+      {"energy": 2.2, "cross_section": 0.271, "unit": "b/sr"},
+      {"energy": 2.3, "cross_section": 0.269, "unit": "b/sr"},
+      {"energy": 2.4, "cross_section": 0.251, "unit": "b/sr"},
+      {"energy": 2.5, "cross_section": 0.229, "unit": "b/sr"},
+      {"energy": 2.6, "cross_section": 0.213, "unit": "b/sr"},
+      {"energy": 2.7, "cross_section": 0.193, "unit": "b/sr"},
+      {"energy": 2.8, "cross_section": 0.174, "unit": "b/sr"},
+      {"energy": 2.9, "cross_section": 0.17, "unit": "b/sr"},
+      {"energy": 3.0, "cross_section": 0.16, "unit": "b/sr"},
+      {"energy": 3.2, "cross_section": 0.136, "unit": "b/sr"},
+      {"energy": 3.4, "cross_section": 0.127, "unit": "b/sr"},
+      {"energy": 3.6, "cross_section": 0.117, "unit": "b/sr"}
+    ]
+  },
+  "comparison_data": [
+    {"energy": 1.6, "theoretical": 1.677004971440979, "experimental": 0.193, "ratio": 8.689144929746005, "difference": 1.4840049714409789},
+    {"energy": 1.7, "theoretical": 1.673208787828685, "experimental": 0.196, "ratio": 8.536779529738189, "difference": 1.477208787828685},
+    {"energy": 1.8, "theoretical": 1.669475913667675, "experimental": 0.211, "ratio": 7.9122081216477484, "difference": 1.4584759136676748},
+    {"energy": 1.9, "theoretical": 1.6658600422241996, "experimental": 0.237, "ratio": 7.028945325840505, "difference": 1.4288600422241995},
+    {"energy": 2.0, "theoretical": 1.662425169823922, "experimental": 0.254, "ratio": 6.544980983558748, "difference": 1.408425169823922},
+    {"energy": 2.1, "theoretical": 1.659247087572439, "experimental": 0.263, "ratio": 6.3089242873476765, "difference": 1.3962470875724389},
+    {"energy": 2.2, "theoretical": 1.6564149946832076, "experimental": 0.271, "ratio": 6.1122324527055625, "difference": 1.3854149946832077},
+    {"energy": 2.3, "theoretical": 1.6540332054185092, "experimental": 0.269, "ratio": 6.14882232497587, "difference": 1.3850332054185093},
+    {"energy": 2.4, "theoretical": 1.6522229017757346, "experimental": 0.251, "ratio": 6.582561361656313, "difference": 1.4012229017757347},
+    {"energy": 2.5, "theoretical": 1.6511238574139337, "experimental": 0.229, "ratio": 7.210147848969143, "difference": 1.4221238574139337},
+    {"energy": 2.6, "theoretical": 1.6508960237778059, "experimental": 0.213, "ratio": 7.7506855576422815, "difference": 1.4378960237778058},
+    {"energy": 2.7, "theoretical": 1.6517208261983995, "experimental": 0.193, "ratio": 8.55813899584663, "difference": 1.4587208261983995},
+    {"energy": 2.8, "theoretical": 1.6538019660558554, "experimental": 0.174, "ratio": 9.50460900032101, "difference": 1.4798019660558555},
+    {"energy": 2.9, "theoretical": 1.657365466555648, "experimental": 0.17, "ratio": 9.749208626797929, "difference": 1.4873654665556482},
+    {"energy": 3.0, "theoretical": 1.6626586384383533, "experimental": 0.16, "ratio": 10.391616490239707, "difference": 1.5026586384383533},
+    {"energy": 3.2, "theoretical": 1.67951283269979, "experimental": 0.136, "ratio": 12.349359063969043, "difference": 1.5435128326997898},
+    {"energy": 3.4, "theoretical": 1.7066237094406602, "experimental": 0.127, "ratio": 13.437981964099686, "difference": 1.5796237094406602},
+    {"energy": 3.6, "theoretical": 1.7462019089581453, "experimental": 0.117, "ratio": 14.924802640667908, "difference": 1.6292019089581453}
+  ],
+  "statistics": {
+    "mean_ratio": 8.763397194764998,
+    "max_ratio": 14.924802640667908,
+    "min_ratio": 6.1122324527055625,
+    "ws_parameters": [40.0 2.0 0.6]
+  }
+}

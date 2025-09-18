@@ -63,6 +63,15 @@ The project uses the following key dependencies:
 (def s-matrix (s-matrix 10.0 ws-params 0))
 ```
 
+### ⚠️ Important: Experimental Validation
+
+**Critical Finding**: When comparing with experimental data, ensure you're using the **same reaction**:
+
+- **Our DWBA Code**: α + p → α + p (alpha scattering from proton)
+- **Common Experimental Data**: p + ⁴He → p + ⁴He (proton scattering from helium)
+
+These are **different reactions** with different kinematics! See [EXPERIMENTAL_VALIDATION.md](EXPERIMENTAL_VALIDATION.md) for details.
+
 ### Phase Shift Analysis
 
 ```clojure
