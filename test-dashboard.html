@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DWBA Dashboard Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        .test-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover { background: #0056b3; }
+        .test-button:disabled { background: #6c757d; cursor: not-allowed; }
+        pre {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧪 DWBA Dashboard Test</h1>
+        <p>This page tests the DWBA web dashboard API endpoints.</p>
+        
+        <div id="status"></div>
+        
+        <h3>API Tests</h3>
+        <button class="test-button" onclick="testHealth()">Test Health Endpoint</button>
+        <button class="test-button" onclick="testParameters()">Test Parameters Endpoint</button>
+        <button class="test-button" onclick="testCalculate()">Test Calculate Endpoint</button>
+        <button class="test-button" onclick="runAllTests()">Run All Tests</button>
+        
+        <h3>Results</h3>
+        <pre id="results">Click a test button to see results...</pre>
+        
+        <h3>Instructions</h3>
+        <ol>
+            <li>Make sure the DWBA dashboard server is running: <code>./start-dashboard.sh</code></li>
+            <li>Click "Run All Tests" to test all API endpoints</li>
+            <li>If tests pass, open <a href="http://localhost:3000" target="_blank">http://localhost:3000</a> in your browser</li>
+        </ol>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3000';
+        
+        function addStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML += `<div class="status ${type}">${message}</div>`;
+        }
+        
+        function setResults(content) {
+            document.getElementById('results').textContent = content;
+        }
+        
+        async function testHealth() {
+            try {
+                addStatus('Testing health endpoint...', 'info');
+                const response = await fetch(`${API_BASE}/api/health`);
+                const data = await response.json();
+                
+                if (response.ok && data.status === 'ok') {
+                    addStatus('✅ Health endpoint working', 'success');
+                    setResults(JSON.stringify(data, null, 2));
+                } else {
+                    throw new Error(`Unexpected response: ${JSON.stringify(data)}`);
+                }
+            } catch (error) {
+                addStatus(`❌ Health endpoint failed: ${error.message}`, 'error');
+                setResults(`Error: ${error.message}`);
+            }
+        }
+        
+        async function testParameters() {
+            try {
+                addStatus('Testing parameters endpoint...', 'info');
+                const response = await fetch(`${API_BASE}/api/parameters`);
+                const data = await response.json();
+                
+                if (response.ok && data.default_parameters) {
+                    addStatus('✅ Parameters endpoint working', 'success');
+                    setResults(JSON.stringify(data, null, 2));
+                } else {
+                    throw new Error(`Unexpected response: ${JSON.stringify(data)}`);
+                }
+            } catch (error) {
+                addStatus(`❌ Parameters endpoint failed: ${error.message}`, 'error');
+                setResults(`Error: ${error.message}`);
+            }
+        }
+        
+        async function testCalculate() {
+            try {
+                addStatus('Testing calculate endpoint...', 'info');
+                const testParams = {
+                    energies: ['5', '10', '15'],
+                    L_values: ['0', '1', '2'],
+                    V0: '40.0',
+                    R0: '2.0',
+                    a0: '0.6',
+                    radius: '3.0'
+                };
+                
+                const response = await fetch(`${API_BASE}/api/calculate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(testParams)
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    addStatus('✅ Calculate endpoint working', 'success');
+                    setResults(`Calculation successful!\n\nPhase shifts: ${data.data.phase_shifts.length} points\nR-matrices: ${data.data.r_matrices.length} points\nPotentials: ${data.data.potentials.length} points\nCross-sections: ${data.data.cross_sections.length} points`);
+                } else {
+                    throw new Error(`Calculation failed: ${data.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                addStatus(`❌ Calculate endpoint failed: ${error.message}`, 'error');
+                setResults(`Error: ${error.message}`);
+            }
+        }
+        
+        async function runAllTests() {
+            document.getElementById('status').innerHTML = '';
+            setResults('Running all tests...\n\n');
+            
+            await testHealth();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            await testParameters();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            await testCalculate();
+            
+            addStatus('🎉 All tests completed!', 'success');
+        }
+    </script>
+</body>
+</html>

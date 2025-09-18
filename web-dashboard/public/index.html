@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DWBA Web Dashboard - Nuclear Physics Calculations</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .dashboard-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            margin: 20px;
+            padding: 30px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #667eea;
+        }
+        .header h1 {
+            color: #2c3e50;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        .header p {
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+        .control-panel {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            border: 2px solid #e9ecef;
+        }
+        .parameter-group {
+            margin-bottom: 20px;
+        }
+        .parameter-group label {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 8px;
+        }
+        .form-control, .form-select {
+            border-radius: 10px;
+            border: 2px solid #dee2e6;
+            padding: 12px 15px;
+            transition: all 0.3s ease;
+        }
+        .form-control:focus, .form-select:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+        .btn-calculate {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border: none;
+            border-radius: 25px;
+            padding: 15px 30px;
+            font-weight: 600;
+            font-size: 1.1em;
+            color: white;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        .btn-calculate:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+        .btn-calculate:disabled {
+            opacity: 0.6;
+            transform: none;
+        }
+        .plot-container {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            border: 1px solid #e9ecef;
+        }
+        .plot-title {
+            font-size: 1.3em;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px 0;
+            border: 1px solid #f5c6cb;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px 0;
+            border: 1px solid #c3e6cb;
+        }
+        .stats-card {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .stats-card h5 {
+            font-size: 2em;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+        .stats-card p {
+            margin: 0;
+            opacity: 0.9;
+        }
+        .tab-content {
+            margin-top: 20px;
+        }
+        .nav-tabs .nav-link {
+            border-radius: 10px 10px 0 0;
+            border: none;
+            color: #495057;
+            font-weight: 600;
+        }
+        .nav-tabs .nav-link.active {
+            background: #667eea;
+            color: white;
+        }
+        .parameter-slider {
+            margin: 10px 0;
+        }
+        .slider-value {
+            font-weight: 600;
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="dashboard-container">
+            <!-- Header -->
+            <div class="header">
+                <h1><i class="fas fa-atom"></i> DWBA Web Dashboard</h1>
+                <p>Interactive Nuclear Physics Calculations - Distorted Wave Born Approximation</p>
+            </div>
+
+            <!-- Control Panel -->
+            <div class="control-panel">
+                <h4><i class="fas fa-sliders-h"></i> Calculation Parameters</h4>
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="parameter-group">
+                            <label for="V0">Woods-Saxon V₀ (MeV)</label>
+                            <input type="range" class="form-range" id="V0" min="-100" max="100" value="40" step="1">
+                            <div class="slider-value" id="V0-value">40 MeV</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="parameter-group">
+                            <label for="R0">Radius R₀ (fm)</label>
+                            <input type="range" class="form-range" id="R0" min="0.5" max="5.0" value="2.0" step="0.1">
+                            <div class="slider-value" id="R0-value">2.0 fm</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="parameter-group">
+                            <label for="a0">Diffuseness a₀ (fm)</label>
+                            <input type="range" class="form-range" id="a0" min="0.1" max="2.0" value="0.6" step="0.1">
+                            <div class="slider-value" id="a0-value">0.6 fm</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="parameter-group">
+                            <label for="radius">Calculation Radius (fm)</label>
+                            <input type="range" class="form-range" id="radius" min="1.0" max="10.0" value="3.0" step="0.1">
+                            <div class="slider-value" id="radius-value">3.0 fm</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <div class="parameter-group">
+                            <label for="energy-range">Energy Range (MeV)</label>
+                            <input type="text" class="form-control" id="energy-range" value="5,10,15,20,25,30" 
+                                   placeholder="Comma-separated values">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="parameter-group">
+                            <label for="L-values">Angular Momenta</label>
+                            <input type="text" class="form-control" id="L-values" value="0,1,2,3,4,5" 
+                                   placeholder="Comma-separated values">
+                        </div>
+                    </div>
+                </div>
+                <div class="text-center mt-4">
+                    <button class="btn btn-calculate" id="calculate-btn" onclick="calculateDWBA()">
+                        <i class="fas fa-calculator"></i> Calculate DWBA
+                    </button>
+                    <button class="btn btn-outline-secondary ms-2" onclick="resetParameters()">
+                        <i class="fas fa-undo"></i> Reset
+                    </button>
+                </div>
+            </div>
+
+            <!-- Status Messages -->
+            <div id="status-messages"></div>
+
+            <!-- Results Tabs -->
+            <ul class="nav nav-tabs" id="results-tabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="phase-tab" data-bs-toggle="tab" data-bs-target="#phase-panel" type="button">
+                        <i class="fas fa-wave-square"></i> Phase Shifts
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="rmatrix-tab" data-bs-toggle="tab" data-bs-target="#rmatrix-panel" type="button">
+                        <i class="fas fa-chart-line"></i> R-Matrices
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="potential-tab" data-bs-toggle="tab" data-bs-target="#potential-panel" type="button">
+                        <i class="fas fa-mountain"></i> Potentials
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="cross-section-tab" data-bs-toggle="tab" data-bs-target="#cross-section-panel" type="button">
+                        <i class="fas fa-crosshairs"></i> Cross-Sections
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="dashboard-tab" data-bs-toggle="tab" data-bs-target="#dashboard-panel" type="button">
+                        <i class="fas fa-tachometer-alt"></i> Dashboard
+                    </button>
+                </li>
+            </ul>
+
+            <div class="tab-content" id="results-content">
+                <!-- Phase Shifts Panel -->
+                <div class="tab-pane fade show active" id="phase-panel" role="tabpanel">
+                    <div class="plot-container">
+                        <div class="plot-title">Nuclear Phase Shifts vs Energy</div>
+                        <div id="phase-plot" style="height: 500px;"></div>
+                    </div>
+                </div>
+
+                <!-- R-Matrices Panel -->
+                <div class="tab-pane fade" id="rmatrix-panel" role="tabpanel">
+                    <div class="plot-container">
+                        <div class="plot-title">R-Matrix Values Comparison</div>
+                        <div id="rmatrix-plot" style="height: 500px;"></div>
+                    </div>
+                </div>
+
+                <!-- Potentials Panel -->
+                <div class="tab-pane fade" id="potential-panel" role="tabpanel">
+                    <div class="plot-container">
+                        <div class="plot-title">Nuclear Potentials vs Radius</div>
+                        <div id="potential-plot" style="height: 500px;"></div>
+                    </div>
+                </div>
+
+                <!-- Cross-Sections Panel -->
+                <div class="tab-pane fade" id="cross-section-panel" role="tabpanel">
+                    <div class="plot-container">
+                        <div class="plot-title">Total Cross-Sections vs Energy</div>
+                        <div id="cross-section-plot" style="height: 500px;"></div>
+                    </div>
+                </div>
+
+                <!-- Dashboard Panel -->
+                <div class="tab-pane fade" id="dashboard-panel" role="tabpanel">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="stats-card">
+                                <h5 id="total-points">0</h5>
+                                <p>Data Points</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stats-card">
+                                <h5 id="energy-range-display">0-0</h5>
+                                <p>Energy Range (MeV)</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stats-card">
+                                <h5 id="L-count">0</h5>
+                                <p>Angular Momenta</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stats-card">
+                                <h5 id="calculation-time">0ms</h5>
+                                <p>Calculation Time</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="plot-container">
+                        <div class="plot-title">Comprehensive DWBA Dashboard</div>
+                        <div id="dashboard-plot" style="height: 600px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

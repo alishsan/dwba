@@ -21,6 +21,8 @@ A comprehensive Clojure library for performing DWBA (Distorted Wave Born Approxi
 - **Data Plotting**: Integration with cljplot for scientific visualization
 - **Phase Shift Plots**: Automatic generation of phase shift vs energy plots
 - **Cross-Section Visualization**: Angular distribution and cross-section plotting capabilities
+- **Interactive Web Dashboard**: Real-time parameter adjustment and plotting
+- **Python/Matplotlib Integration**: Professional publication-quality plots
 
 ## Installation
 
@@ -80,6 +82,51 @@ The project uses the following key dependencies:
 (def L-values (range 20))
 (def cross-sections
   (mapv (fn [L] [L (sigma-L0 10.0 ws-params 3.0 L)]) L-values))
+```
+
+## Web Dashboard
+
+The library includes an interactive web dashboard for real-time parameter adjustment and visualization:
+
+### Starting the Dashboard
+```bash
+# Start the web server
+./start-dashboard.sh
+
+# Or manually
+cd web-dashboard
+lein run
+```
+
+### Features
+- **Real-time Parameter Adjustment**: Interactive sliders for Woods-Saxon parameters
+- **Live Calculations**: Instant updates when parameters change
+- **Interactive Plots**: Zoom, pan, and explore data with Plotly.js
+- **Multiple Views**: Phase shifts, R-matrices, potentials, cross-sections
+- **Responsive Design**: Works on desktop and mobile devices
+
+### Access
+Open your browser to: http://localhost:3000
+
+### Testing
+```bash
+# Open test page
+open test-dashboard.html
+
+# Or test API directly
+curl http://localhost:3000/api/health
+```
+
+## Python Visualization
+
+For publication-quality plots, use the Python/matplotlib integration:
+
+```bash
+# Generate all plots
+python3 visualize_dwba.py
+
+# View plot information  
+python3 view_plots.py
 ```
 
 ## API Reference

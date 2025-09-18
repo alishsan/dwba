@@ -1,5 +1,9 @@
 {
   "potentials": [
+    {"radius": 0.1, "woods_saxon": -38.38241740727987, "coulomb": 0.072, "combined": -38.310417407279864},
+    {"radius": 0.2, "woods_saxon": -38.102965072897334, "coulomb": 0.144, "combined": -37.958965072897335},
+    {"radius": 0.30000000000000004, "woods_saxon": -37.77802959369553, "coulomb": 0.21600000000000003, "combined": -37.56202959369553},
+    {"radius": 0.4, "woods_saxon": -37.401233234853436, "coulomb": 0.288, "combined": -37.11323323485344},
     {"radius": 0.5, "woods_saxon": -36.96567279915026, "coulomb": 0.36, "combined": -36.60567279915026},
     {"radius": 0.6, "woods_saxon": -36.46401291171767, "coulomb": 0.432, "combined": -36.032012911717665},
     {"radius": 0.7, "woods_saxon": -35.88863900330993, "coulomb": 0.504, "combined": -35.384639003309935},
