@@ -5,9 +5,6 @@
  [fastmath.polynomials :as poly]
  [fastmath.special :as spec]
    [fastmath.vector :as v]
-[cljplot.render :as r]
-[cljplot.build :as b]
-[cljplot.core :refer [save xy-chart show]]
 )
 )
 (use 'complex)
@@ -39,13 +36,7 @@
 (def phase-E1-data (->> Es
                         (mapv (fn[p] [ p (phase-shift p ws-stand 1)]))))
 
-(defn plot-phase [x] (-> (b/series [:scatter x {:color :red}])
-    (b/preprocess-series)
-      (b/add-axes :bottom)
-      (b/add-axes :left)
-      (r/render-lattice {:width 600 :height 300})
-      (show))
- )
+;; Plotting functions removed - using matplotlib instead
 
 
 
