@@ -18,6 +18,38 @@
 (def Z1Z2ee (* 2 1.44) ; alpha and proton
   );Z1Z2 e^2 (MeV fm)
 
+;; Kinematic transformation functions
+(defn lab-to-cm-energy [E-lab m1 m2]
+  "Convert laboratory energy to center-of-mass energy"
+  (* E-lab (/ m2 (+ m1 m2))))
+
+(defn lab-to-cm-angle [theta-lab m1 m2]
+  "Convert laboratory angle to center-of-mass angle - User's corrected formula"
+  (let [ratio (/ m1 (+ m1 m2))
+        tan-theta-cm (/ (Math/sin theta-lab) (- (Math/cos theta-lab) ratio))
+        sign-tan (Math/signum tan-theta-cm)
+        cos-theta-cm (Math/sqrt (/ 1.0 (+ 1.0 (* tan-theta-cm tan-theta-cm))))]
+    (Math/acos (* sign-tan cos-theta-cm))))
+
+(defn cm-to-lab-angle [theta-cm m1 m2]
+  "Convert center-of-mass angle to laboratory angle - inverse of lab-to-cm-angle"
+  (let [ratio (/ m1 (+ m1 m2))  ; Same ratio as lab-to-cm
+        sincm (Math/sin theta-cm)
+        coscm (Math/cos theta-cm);
+        sign-cos (Math/signum coscm)
+        cos-theta-lab (+ (* ratio sincm sincm) (* sign-cos (Math/sqrt (+ (* coscm coscm) (* (Math/pow sincm 4) ratio ratio) (* -1 ratio ratio sincm sincm) ))))]
+    (Math/acos cos-theta-lab)))
+
+(defn jacobian-lab-to-cm [theta-lab m1 m2]
+  "Calculate Jacobian for lab-to-CM transformation"
+  (let [ratio (/ m1 (+ m1 m2))
+        cos-theta-lab (Math/cos theta-lab)
+        sin-theta-lab (Math/sin theta-lab)
+        denominator (+ (* cos-theta-lab cos-theta-lab) 
+                       (* ratio ratio) 
+                       (- (* 2 ratio cos-theta-lab)))]
+    (/ (* ratio ratio) denominator)))
+
 
 (defn deriv
   ([fn1 x dx]
@@ -275,3 +307,37 @@ dr 0.00001]
 
 ;  (div   (hypergeometric-complex-1F1 a (- b 2) z)      (mul (gamma-complex (subt b 2)) (gamma-complex a))) 
   )
+
+;; DWBA Differential Cross-Section Functions
+(defn differential-cross-section [E-cm ws-params theta-cm L-max]
+  "Calculate differential cross-section using full DWBA with Coulomb effects"
+  (let [k (m/sqrt (* mass-factor E-cm))
+        eta (* Z1Z2ee (/ mass-factor k 2))
+        ;; Sum over partial waves
+        total-amplitude 
+        (reduce add
+          (for [L (range 0 (inc L-max))]
+            (let [S-matrix-val (s-matrix E-cm ws-params L)
+                  phase-shift-val (phase-shift E-cm ws-params L)
+                  ;; Scattering amplitude for this L
+                  f-L (mul (div (complex-from-cartesian 0 -1) k)
+                           (inc (* 2 L))
+                           (poly/eval-legendre-P L (m/cos theta-cm))
+                           (subt S-matrix-val 1.0))]
+              f-L)))]
+    ;; Differential cross-section = |f|²
+    (mul total-amplitude (conj total-amplitude))))
+
+(defn total-cross-section [E-cm ws-params L-max]
+  "Calculate total cross-section using DWBA"
+  (let [k (m/sqrt (* mass-factor E-cm))
+        ;; Sum over partial waves
+        total-sigma
+        (reduce +
+          (for [L (range 0 (inc L-max))]
+            (let [S-matrix-val (s-matrix E-cm ws-params L)
+                  ;; Cross-section contribution for this L
+                  sigma-L (* (/ 2 E-cm) Math/PI (inc (* 2 L)) 
+                             (Math/pow (mag (subt 1.0 S-matrix-val)) 2))]
+              sigma-L)))]
+    total-sigma))
