@@ -28,6 +28,14 @@ data/
 paper_data/
 results/
 
+# Temporary analysis files
+*.png
+*.pdf
+*_analysis.png
+*_conversion_analysis.png
+*_cross_sections.png
+*_vs_experiment.*
+
 # Python
 __pycache__/
 *.py[cod]
