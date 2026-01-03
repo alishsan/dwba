@@ -58,19 +58,8 @@
 (def mu-alpha-p (/ (* mAlpha mp) (+ mAlpha mp)))  ; reduced mass for α + p
 (def mass-factor-alpha-p (/ (* 2 mu-alpha-p) hbarc hbarc))
 
-;; Kinematic conversion functions
-(defn lab-to-cm-energy [E-lab m1 m2]
-  "Convert laboratory energy to center-of-mass energy"
-  (* E-lab (/ m2 (+ m1 m2))))
-
-
-(defn lab-to-cm-angle [theta-lab m1 m2]
-  "Convert laboratory angle to center-of-mass angle - User's corrected formula"
-  (let [ratio (/ m1 (+ m1 m2))
-        tan-theta-cm (/ (Math/sin theta-lab) (- (Math/cos theta-lab) ratio))
-        sign-tan (Math/signum tan-theta-cm)
-        cos-theta-cm (Math/sqrt (/ 1.0 (+ 1.0 (* tan-theta-cm tan-theta-cm))))]
-    (Math/acos (* sign-tan cos-theta-cm))))
+;; Load core DWBA functions
+(require '[functions :refer :all])
 
 
 
@@ -135,6 +124,52 @@
 (println "   - Experimental data can be directly compared with DWBA calculations")
 (println "   - Frame conversions are validated")
 (println "   - Cross-section transformations are working")
+
+(println "\n=== THEORETICAL DWBA CALCULATIONS ===")
+(def theta-lab-rad (* (:angle-lab experimental-data) Math/PI (/ 180.0)))
+(def theta-cm-rad (lab-to-cm-angle theta-lab-rad mp mHe))
+(def theta-cm-deg (* theta-cm-rad (/ 180.0 Math/PI)))
+
+(println (str "Lab angle: " (:angle-lab experimental-data) "°"))
+(println (str "CM angle: " (format "%.1f" theta-cm-deg) "°"))
+
+(println "\nEnergy (Lab) | Energy (CM) | Theory (b/sr) | Experiment (b/sr) | Ratio")
+(println "-------------|-------------|---------------|------------------|-------")
+
+(def comparison-results [])
+
+(doseq [point (:data-points experimental-data)]
+  (let [E-lab (:energy-lab point)
+        E-cm (lab-to-cm-energy E-lab mp mHe)
+        sigma-exp (:cross-section point)
+        
+        ;; Calculate theoretical cross-section using DWBA
+        sigma-theory (differential-cross-section E-cm ws-stand theta-cm-rad 10)
+        sigma-theory-barn (mag sigma-theory)  ; Convert to barns/sr
+        
+        ratio (if (> sigma-theory-barn 0) 
+                (/ sigma-exp sigma-theory-barn) 
+                0.0)]
+    
+    (println (format "%11.1f | %10.3f | %12.6f | %16.3f | %5.3f" 
+                     E-lab E-cm sigma-theory-barn sigma-exp ratio))
+    
+    (def comparison-results (conj comparison-results {:E-lab E-lab 
+                                                      :E-cm E-cm 
+                                                      :theory sigma-theory-barn 
+                                                      :experiment sigma-exp 
+                                                      :ratio ratio}))))
+
+;; Calculate statistics
+(def theory-avg (/ (reduce + (map :theory comparison-results)) (count comparison-results)))
+(def exp-avg (/ (reduce + (map :experiment comparison-results)) (count comparison-results)))
+(def avg-ratio (/ (reduce + (map :ratio comparison-results)) (count comparison-results)))
+
+(println "")
+(println "=== COMPARISON STATISTICS ===")
+(println (str "Average theoretical cross-section: " (format "%.6f" theory-avg) " b/sr"))
+(println (str "Average experimental cross-section: " (format "%.3f" exp-avg) " b/sr"))
+(println (str "Average ratio (exp/theory): " (format "%.3f" avg-ratio)))
 
 (println "\n=== VALIDATION COMPLETE ===")
 (println "🎯 This analysis confirms:")

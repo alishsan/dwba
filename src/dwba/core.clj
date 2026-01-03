@@ -16,7 +16,7 @@
 
 (def Es  (range 1 51 1))
 
-(def ws-stand [40 2.0 0.6]) ;standard WS function parameters
+(def ws-stand [40 2.89 0.65]) ;standard WS function parameters
 (def phase-data0 (->> xs
                      (mapv (fn[p] [ p (r-matrix-a 1 ws-stand p 0)]))))
 (def shift-data (->> xs

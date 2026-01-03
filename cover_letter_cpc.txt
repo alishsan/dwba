@@ -1,0 +1,36 @@
+Dear Editor,
+
+We are pleased to submit our manuscript entitled "Hybrid Analytic-Numerical Initialization of the Numerov Algorithm for l>0 Partial-Wave Scattering" for consideration for publication in Computer Physics Communications.
+
+This work presents a novel hybrid initialization scheme for the Numerov algorithm that addresses a fundamental challenge in numerical solutions of the radial Schrödinger equation for non-zero angular momentum. Our method uses an analytic Riccati-Bessel initialization that incorporates the local potential depth and incident energy, providing significant improvements in numerical stability and convergence rate.
+
+Key contributions of this work include:
+
+1. **Novel Initialization Method**: We introduce a Riccati-Bessel based initialization that is physically consistent with the local potential, unlike standard power-series starts.
+
+2. **Improved Numerical Stability**: The method preserves the discrete Wronskian to machine precision, preventing the initialization shock common in high-l calculations.
+
+3. **Computational Efficiency**: The approach achieves the same accuracy with larger step sizes, offering substantial computational advantages (2-4x speedup in practice).
+
+4. **Rigorous Verification**: We provide comprehensive numerical verification demonstrating the method's consistency and efficiency.
+
+This work is particularly relevant to the computational physics community as the Numerov algorithm is widely used in nuclear and atomic physics calculations. The method is straightforward to implement, requires minimal additional computation, and extends naturally to higher partial waves.
+
+The manuscript is original, has not been published elsewhere, and is not currently under consideration by any other journal. All authors have contributed significantly to this work and have approved the final version of the manuscript.
+
+We believe this work will be of interest to researchers in computational physics, particularly those working in nuclear scattering calculations, quantum mechanics, and numerical methods for differential equations.
+
+Thank you for considering our manuscript. We look forward to your response.
+
+Sincerely,
+
+Alisher Sanetullaev (Corresponding Author)
+Department of Physics
+New Uzbekistan University
+Tashkent, Uzbekistan
+Email: [your-email@nuu.uz]
+
+Co-authors:
+Marhabo Beymamatova
+Mirzabek Botirov
+

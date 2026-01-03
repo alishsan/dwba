@@ -265,3 +265,13 @@ exit
 exit
 (* (/ 180. 3.14) (lab-to-cm-angle (* 165 (/ 3.14 180.) )  1 4))
 exit
+(load-file "simple_experimental_analysis.clj")
+(load-file "plot_phase_shifts.clj")
+(load-file "alpha_n_phase_shifts.clj")
+   (load-file "alpha_n_phase_shifts.clj")
+(Math/abs -3)
+exit
+   (load-file "alpha_n_phase_shifts.clj")
+exit
+(load-file "test_bound_state.clj")
+(System/exit 0)
