@@ -2,6 +2,7 @@
 
 (require '[dwba.transfer :refer :all])
 (require '[functions :refer :all])
+(require '[fastmath.core :as m])
 
 (println "=== Debugging Bound State Search ===\n")
 
@@ -69,8 +70,8 @@
   ;; Check for sign changes
   (println "\nSign changes (potential nodes):")
   (let [sign-changes (for [i (range 1 (min 1000 (count u)))]
-                       (let [prev-sign (Math/signum (get u (dec i)))
-                             curr-sign (Math/signum (get u i))
+                       (let [prev-sign (m/signum (get u (dec i)))
+                             curr-sign (m/signum (get u i))
                              r (* i h)]
                          (when (not= prev-sign curr-sign)
                            {:r r :u-prev (get u (dec i)) :u-curr (get u i)})))]

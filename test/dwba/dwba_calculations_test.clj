@@ -1,5 +1,6 @@
 (ns dwba.dwba-calculations-test
   (:require [clojure.test :refer :all]
+            [fastmath.core :as m]
             [fastmath.special :as spec]
             [fastmath.complex :as cplx]
             [complex :refer :all]
@@ -57,7 +58,7 @@
                          denominator (Math/sqrt (+ 1 (* 2 ratio cos-theta-cm) (* ratio ratio)))]
                      (if (< (Math/abs numerator) denominator)
                        (Math/acos (/ numerator denominator))
-                       (Math/acos (Math/signum numerator))))]
+                       (Math/acos (m/signum numerator))))]
       (println "Lab energy:" E-lab "MeV")
       (println "CM energy:" E-cm "MeV")
       (println "Lab angle:" theta-lab "degrees")

@@ -29,7 +29,7 @@
   "Convert laboratory angle to center-of-mass angle - User's cteformula"
   (let [ratio (/ m1 (+ m1 m2))
         tan-theta-cm (/ (Math/sin theta-lab) (- (Math/cos theta-lab) ratio))
-        sign-tan (Math/signum tan-theta-cm)
+        sign-tan (m/signum tan-theta-cm)
         cos-theta-cm (Math/sqrt (/ 1.0 (+ 1.0 (* tan-theta-cm tan-theta-cm))))]
     (Math/acos (* sign-tan cos-theta-cm))))
 
@@ -38,7 +38,7 @@
   (let [ratio (/ m1 (+ m1 m2))  ; Same ratio as lab-to-cm
         sincm (Math/sin theta-cm)
         coscm (Math/cos theta-cm);
-        sign-cos (Math/signum coscm)
+        sign-cos (m/signum coscm)
         cos-theta-lab (+ (* ratio sincm sincm) (* sign-cos (Math/sqrt (+ (* coscm coscm) (* (Math/pow sincm 4) ratio ratio) (* -1 ratio ratio sincm sincm) ))))]
     (Math/acos cos-theta-lab)))
 
@@ -487,19 +487,76 @@ rho (* k a) ]
    
    Returns: Error in matching condition (should be 0 for bound state).
    
-   The matching condition for a finite square well is:
-   xi * j_l'(xi) / j_l(xi) = eta * k_l'(eta) / k_l(eta)
+   Uses the recurrence relation form of the matching condition:
+   xi * j_{l-1}(xi) / j_l(xi) + eta * k_{l-1}(eta) / k_l(eta) = 0
    
-   This ensures continuity of the logarithmic derivative at r = a."
-  (let [j-l-xi (j-l l xi)
-        j-l-prime-xi (j-l-deriv l xi)
-        k-l-eta (k-l l eta)
-        k-l-prime-eta (k-l-deriv l eta)
-        ;; Log-derivative inside: xi * j_l'(xi) / j_l(xi)
-        log-deriv-inside (* xi (/ j-l-prime-xi j-l-xi))
-        ;; Log-derivative outside: eta * k_l'(eta) / k_l(eta)
-        log-deriv-outside (* eta (/ k-l-prime-eta k-l-eta))]
-    (- log-deriv-inside log-deriv-outside)))
+   Or equivalently:
+   xi * j_{l-1}(xi) / j_l(xi) = -eta * k_{l-1}(eta) / k_l(eta)
+   
+   This is equivalent to the log-derivative form but more numerically stable.
+   The sign convention: we want left - right = 0, so error = left + right (since right has negative sign)."
+  (if (zero? l)
+    ;; For l=0, j_{-1} doesn't exist, so use direct derivative form
+    ;; j_0'(xi)/j_0(xi) = k_0'(eta)/k_0(eta)
+    (let [j0-xi (j-l 0 xi)
+          j0-prime-xi (j-l-deriv 0 xi)
+          k0-eta (k-l 0 eta)
+          k0-prime-eta (k-l-deriv 0 eta)
+          log-deriv-inside (/ j0-prime-xi j0-xi)
+          log-deriv-outside (/ k0-prime-eta k0-eta)]
+      (- log-deriv-inside log-deriv-outside))
+    ;; For l > 0, use recurrence relation form
+    (let [j-l-xi (j-l l xi)
+          j-lm1-xi (j-l (dec l) xi)
+          k-l-eta (k-l l eta)
+          k-lm1-eta (k-l (dec l) eta)
+          ;; Left side: xi * j_{l-1}(xi) / j_l(xi)
+          left (* xi (/ j-lm1-xi j-l-xi))
+          ;; Right side: eta * k_{l-1}(eta) / k_l(eta) (note: positive, not negative)
+          right (* eta (/ k-lm1-eta k-l-eta))]
+      ;; Matching condition: left + right = 0 (since right should be negative of left)
+      (+ left right))))
+
+(defn bisection [f low high tolerance max-iters]
+  "Generic bisection root-finding algorithm.
+   
+   Parameters:
+   - f: Function to find root of (should change sign between low and high)
+   - low: Lower bound of search interval
+   - high: Upper bound of search interval
+   - tolerance: Convergence tolerance (stop when |high - low| < tolerance)
+   - max-iters: Maximum number of iterations
+   
+   Returns: {:root, :value, :iterations, :converged?}
+   - root: The root found
+   - value: f(root) - should be close to 0
+   - iterations: Number of iterations used
+   - converged?: Whether convergence was achieved"
+  (let [f-low (f low)
+        f-high (f high)]
+    (if (= (m/signum f-low) (m/signum f-high))
+      {:root low
+       :value f-low
+       :iterations 0
+       :converged? false
+       :error "Function has same sign at both endpoints"}
+      (loop [low low
+             high high
+             iter 0]
+        (if (or (>= iter max-iters)
+                (< (Math/abs (- high low)) tolerance))
+          (let [mid (/ (+ low high) 2.0)
+                f-mid (f mid)]
+            {:root mid
+             :value f-mid
+             :iterations iter
+             :converged? (< (Math/abs f-mid) tolerance)})
+          (let [mid (/ (+ low high) 2.0)
+                f-mid (f mid)
+                f-low (f low)]
+            (if (= (m/signum f-low) (m/signum f-mid))
+              (recur mid high (inc iter))
+              (recur low mid (inc iter)))))))))
 
 (defn find-bound-state-finite-well [l z0]
   "Finds bound state energies for a finite square well using k-l and j-l functions.
@@ -509,32 +566,52 @@ rho (* k a) ]
    - z0: Dimensionless well depth parameter z0 = a * sqrt(2mV0)/hbar
          where a is the well radius and V0 is the well depth
    
-   Returns: {:e-ratio, :xi, :eta, :energy}
+   Returns: {:e-ratio, :xi, :eta, :energy, :converged?}
    - e-ratio: |E|/V0 (dimensionless energy, 0 < e-ratio < 1)
    - xi: ka = z0 * sqrt(1 - e_ratio) (dimensionless wave number inside well)
    - eta: kappa*a = z0 * sqrt(e_ratio) (dimensionless decay parameter outside well)
    - energy: e-ratio (same as e-ratio, for convenience)
+   - converged?: Whether the bisection converged
    
    The relationship between xi and eta is: xi^2 + eta^2 = z0^2
    This comes from: k^2 = 2m(E+V0)/hbar^2 and kappa^2 = 2m|E|/hbar^2
    so: (ka)^2 + (kappa*a)^2 = (2mV0/hbar^2) * a^2 = z0^2
    
-   Uses bisection to find the root of the transcendental matching condition."
-  (loop [low 0.0001
-         high 0.9999
-         iters 0]
-    (let [e-ratio (/ (+ low high) 2.0)
-          xi (* z0 (m/sqrt (- 1 e-ratio)))  ; xi = z0 * sqrt(1 - e_ratio)
-          eta (* z0 (m/sqrt e-ratio))        ; eta = z0 * sqrt(e_ratio)
-          err (finite-well-matching-error xi eta l)]
-      (if (or (>= iters 100) (< (m/abs err) 1e-7))
-        {:e-ratio e-ratio
-         :xi xi
-         :eta eta
-         :energy e-ratio}
-        (if (> err 0)
-          (recur e-ratio high (inc iters))
-          (recur low e-ratio (inc iters)))))))
+   Uses bisection to find the root of the transcendental matching condition.
+   Searches in the range [0.1, 0.9] where the first bound state typically lies."
+  (let [;; Define function to find root of: f(e-ratio) = matching error
+        f (fn [e-ratio]
+            (let [xi (* z0 (m/sqrt (- 1 e-ratio)))  ; xi = z0 * sqrt(1 - e_ratio)
+                  eta (* z0 (m/sqrt e-ratio))]       ; eta = z0 * sqrt(e_ratio)
+              (finite-well-matching-error xi eta l)))
+        ;; Search in a reasonable range where bound states typically occur
+        ;; For ground state, e-ratio is usually between 0.1 and 0.9
+        ;; We'll search multiple ranges if needed
+        search-ranges [[0.1 0.5] [0.3 0.7] [0.5 0.9]]
+        ;; Try each range until we find a root
+        result (loop [ranges search-ranges]
+                 (if (empty? ranges)
+                   {:root 0.5
+                    :value (f 0.5)
+                    :iterations 0
+                    :converged? false
+                    :error "No root found in search ranges"}
+                   (let [[low high] (first ranges)
+                         f-low (f low)
+                         f-high (f high)]
+                     (if (not= (m/signum f-low) (m/signum f-high))
+                       (bisection f low high 1e-7 100)
+                       (recur (rest ranges))))))
+        e-ratio (:root result)
+        xi (* z0 (m/sqrt (- 1 e-ratio)))
+        eta (* z0 (m/sqrt e-ratio))]
+    {:e-ratio e-ratio
+     :xi xi
+     :eta eta
+     :energy e-ratio
+     :converged? (:converged? result)
+     :matching-error (:value result)
+     :iterations (:iterations result)}))
 
 (defn find-all-bound-states [l z0]
   "Finds all bound states for a given l and z0.

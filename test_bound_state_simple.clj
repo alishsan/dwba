@@ -47,10 +47,10 @@
   "Count nodes in wavefunction"
   (loop [n 0
          i 1
-         prev-sign (Math/signum (get u 0))]
+         prev-sign (m/signum (get u 0))]
     (if (>= i (count u))
       n
-      (let [current-sign (Math/signum (get u i))
+      (let [current-sign (m/signum (get u i))
             crossed-zero (not= prev-sign current-sign)]
         (recur (if (and crossed-zero (not (zero? (get u i))))
                  (inc n)
@@ -112,8 +112,8 @@
   (doseq [i (range 1 (count results))]
     (let [prev (:boundary (get results (dec i)))
           curr (:boundary (get results i))
-          prev-sign (Math/signum prev)
-          curr-sign (Math/signum curr)]
+          prev-sign (m/signum prev)
+          curr-sign (m/signum curr)]
       (when (not= prev-sign curr-sign)
         (println (format "  Between E=%.2f and E=%.2f MeV" 
                         (:energy (get results (dec i)))

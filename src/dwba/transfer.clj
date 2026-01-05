@@ -3,7 +3,9 @@
    
    This namespace implements bound state wavefunctions, transfer form factors,
    and cross-section calculations for reactions like (d,p), (p,d), etc."
-  (:require [functions :refer :all]
+  (:require [fastmath.core :as m]
+            [fastmath.special :as spec]
+            [functions :refer :all]
             [complex :refer :all]))
 
 ;; ============================================================================
@@ -83,8 +85,11 @@
         
         steps (int (/ rho-max h-rho))
         ;; Initialize with bound state start: u(rho) ≈ rho^(l+1)
+        ;; Note: u(rho) is the dimensionless radial wavefunction
+        ;; For l=0: u(rho) ≈ rho, so u(h_rho) ≈ h_rho
+        ;; For l=1: u(rho) ≈ rho^2, so u(h_rho) ≈ h_rho^2
         u0 0.0
-        u1 (bound-state-start h-rho l)
+        u1 (bound-state-start h-rho l)  ; u1 = h_rho^(l+1) in dimensionless units
         
         ;; Pre-calculate f(rho) values for Numerov in dimensionless form
         ;; f(rho) = λ · [v(rho) + l(l+1)/(rho²) - ε]
@@ -96,23 +101,30 @@
                  (take (+ steps 2) (iterate #(+ % h-rho) 0.0)))
         h-rho2-12 (/ (* h-rho h-rho) 12.0)]
     
-    (loop [n 1
-           results [u0 u1]]
-      (if (>= n (dec steps))
-        results
-        (let [un (get results n)
-              un-1 (get results (dec n))
-              fn-1 (get fs (dec n))
-              fn (get fs n)
-              fn+1 (get fs (inc n))
-              
-              ;; Numerov step formula (dimensionless)
-              numerator (+ (* 2.0 un) 
-                           (- un-1) 
-                           (* h-rho2-12 (+ (* 10.0 fn un) (* fn-1 un-1))))
-              denominator (- 1.0 (* h-rho2-12 fn+1))
-              un+1 (/ numerator denominator)]
-          (recur (inc n) (conj results un+1)))))))
+    (let [results (loop [n 1
+                         results [u0 u1]]
+                    (if (>= n (dec steps))
+                      results
+                      (let [un (get results n)
+                            un-1 (get results (dec n))
+                            fn-1 (get fs (dec n))
+                            fn (get fs n)
+                            fn+1 (get fs (inc n))
+                            
+                            ;; Numerov step formula (dimensionless)
+                            numerator (+ (* 2.0 un) 
+                                         (- un-1) 
+                                         (* h-rho2-12 (+ (* 10.0 fn un) (* fn-1 un-1))))
+                            denominator (- 1.0 (* h-rho2-12 fn+1))
+                            un+1 (/ numerator denominator)]
+                        (recur (inc n) (conj results un+1)))))]
+      ;; The radial wavefunction u(r) should satisfy u(r) ≈ r^(l+1) for small r
+      ;; In dimensionless: u(rho) ≈ rho^(l+1) where rho = r/R0
+      ;; For l=0: u(rho) ≈ rho, so u(h_rho) = h_rho = h/R0
+      ;; But we want u(h) = h in physical units
+      ;; So we need: u(h) = R0 * u(h_rho) = R0 * (h/R0) = h ✓
+      ;; Therefore, we scale by R0 to convert from dimensionless to physical
+      (mapv #(* rad %) results))))
 
 (defn bound-state-boundary-value [u r-max h]
   "Check the boundary condition for a bound state.
@@ -144,11 +156,11 @@
       (loop [n 0
              i (inc start-idx)
              prev-val (get u start-idx)
-             prev-sign (Math/signum prev-val)]
+             prev-sign (m/signum prev-val)]
         (if (>= i (count u))
           n
           (let [u-i (get u i)
-                current-sign (Math/signum u-i)
+                current-sign (m/signum u-i)
                 ;; Count a node if:
                 ;; 1. Sign changes (crossed zero)
                 ;; 2. Previous value was non-zero (not starting from zero)
@@ -225,66 +237,91 @@
    - h: Step size
    - tolerance: Energy convergence tolerance
    
-   Returns: {:energy E, :wavefunction u, :boundary-value u-end, :nodes n, :converged? bool}"
+   Returns: {:energy E, :wavefunction u, :boundary-value u-end, :nodes n, :converged? bool}
+   
+   Uses bisection to find energy where u(r_max) ≈ 0. If boundary values don't have
+   opposite signs, uses golden section search to find minimum |u(r_max)|."
   [E-guess target-nodes V-params l r-max h tolerance]
   (let [v0 (first V-params)
         rad (second V-params)
         diff (last V-params)
-        E-range 3.0  ; Search ±3 MeV around guess (smaller range for better precision)
+        ;; Use larger range: ±15 MeV or from -V0 to -0.1, whichever is smaller
+        E-range (min 15.0 (* v0 0.3))  ; Search ±15 MeV or 30% of V0
         E-lo (- E-guess E-range)
         E-hi (+ E-guess E-range)
+        ;; Ensure E-lo and E-hi are negative (bound states)
+        E-lo (max E-lo (- v0))
+        E-hi (min E-hi -0.1)
         u-lo (solve-bound-state-numerov E-lo l v0 rad diff h r-max)
         u-hi (solve-bound-state-numerov E-hi l v0 rad diff h r-max)
+        u-mid (solve-bound-state-numerov E-guess l v0 rad diff h r-max)
         u-lo-val (bound-state-boundary-value u-lo r-max h)
         u-hi-val (bound-state-boundary-value u-hi r-max h)
-        ;; Ensure we have opposite signs for bisection to work
-        ;; If both have same sign, expand the range
-        initial-range (if (= (Math/signum u-lo-val) (Math/signum u-hi-val))
-                       (loop [range E-range]
-                         (let [E-lo-new (- E-guess range)
-                               E-hi-new (+ E-guess range)
-                               u-lo-new (solve-bound-state-numerov E-lo-new l v0 rad diff h r-max)
-                               u-hi-new (solve-bound-state-numerov E-hi-new l v0 rad diff h r-max)
-                               u-lo-val-new (bound-state-boundary-value u-lo-new r-max h)
-                               u-hi-val-new (bound-state-boundary-value u-hi-new r-max h)]
-                           (if (or (not= (Math/signum u-lo-val-new) (Math/signum u-hi-val-new))
-                                   (> range 10.0))
-                             {:E-lo E-lo-new :E-hi E-hi-new :u-lo-val u-lo-val-new :u-hi-val u-hi-val-new}
-                             (recur (* range 1.5)))))
-                       {:E-lo E-lo :E-hi E-hi :u-lo-val u-lo-val :u-hi-val u-hi-val})]
-    (loop [iter 0
-           E-lo (:E-lo initial-range)
-           E-hi (:E-hi initial-range)
-           u-lo-val (:u-lo-val initial-range)
-           u-hi-val (:u-hi-val initial-range)
-           best-energy E-guess
-           best-boundary (Math/abs (bound-state-boundary-value 
-                                    (solve-bound-state-numerov E-guess l v0 rad diff h r-max) r-max h))]
-      (if (or (>= iter 100)  ; More iterations for better convergence
-              (< (Math/abs (- E-hi E-lo)) tolerance))
-        (let [E-mid (/ (+ E-lo E-hi) 2.0)
-              u-mid (solve-bound-state-numerov E-mid l v0 rad diff h r-max)
-              u-mid-val (bound-state-boundary-value u-mid r-max h)
-              nodes (count-nodes u-mid)
-              boundary-abs (Math/abs u-mid-val)]
-          {:energy E-mid
-           :wavefunction u-mid
-           :boundary-value u-mid-val
-           :nodes nodes
-           :converged? (and (= nodes target-nodes)
-                           (< boundary-abs 0.1))})  ; More lenient: 0.1 instead of 0.01
-        (let [E-mid (/ (+ E-lo E-hi) 2.0)
-              u-mid (solve-bound-state-numerov E-mid l v0 rad diff h r-max)
-              u-mid-val (bound-state-boundary-value u-mid r-max h)
-              boundary-abs (Math/abs u-mid-val)
-              ;; Track best result (smallest boundary value)
-              [new-best-energy new-best-boundary] (if (< boundary-abs best-boundary)
-                                                    [E-mid boundary-abs]
-                                                    [best-energy best-boundary])
-              same-sign-lo-mid (= (Math/signum u-lo-val) (Math/signum u-mid-val))]
-          (if same-sign-lo-mid
-            (recur (inc iter) E-mid E-hi u-mid-val u-hi-val new-best-energy new-best-boundary)
-            (recur (inc iter) E-lo E-mid u-lo-val u-mid-val new-best-energy new-best-boundary)))))))
+        u-mid-val (bound-state-boundary-value u-mid r-max h)
+        ;; Check if we have opposite signs for bisection
+        ;; Try to find a sign change by checking multiple points
+        has-sign-change (or (not= (m/signum u-lo-val) (m/signum u-hi-val))
+                            (not= (m/signum u-lo-val) (m/signum u-mid-val))
+                            (not= (m/signum u-mid-val) (m/signum u-hi-val)))]
+    (if has-sign-change
+      ;; Use bisection function from functions.clj when signs are opposite
+      ;; First, find the energy range with opposite signs
+      (let [;; Search for sign change points
+            search-points 20
+            sign-change-range (loop [i 0
+                                     found-range nil]
+                                (if (or (>= i search-points) found-range)
+                                  found-range
+                                  (let [E-test (+ E-lo (* i (/ (- E-hi E-lo) (dec search-points))))
+                                        u-test (solve-bound-state-numerov E-test l v0 rad diff h r-max)
+                                        u-test-val (bound-state-boundary-value u-test r-max h)
+                                        E-next (if (< i (dec search-points))
+                                                 (+ E-lo (* (inc i) (/ (- E-hi E-lo) (dec search-points))))
+                                                 E-hi)
+                                        u-next (solve-bound-state-numerov E-next l v0 rad diff h r-max)
+                                        u-next-val (bound-state-boundary-value u-next r-max h)]
+                                    (if (not= (m/signum u-test-val) (m/signum u-next-val))
+                                      (recur (inc i) [E-test E-next])
+                                      (recur (inc i) found-range)))))
+            ;; Use bisection on the range with sign change, or full range if none found
+            [E-bisect-lo E-bisect-hi] (if sign-change-range
+                                        sign-change-range
+                                        [E-lo E-hi])
+            ;; Define function f(E) = u(r_max) for bisection
+            f (fn [E]
+                (bound-state-boundary-value 
+                 (solve-bound-state-numerov E l v0 rad diff h r-max) r-max h))
+            bisection-result (bisection f E-bisect-lo E-bisect-hi tolerance 100)
+            E-root (:root bisection-result)
+            u-final (solve-bound-state-numerov E-root l v0 rad diff h r-max)
+            u-final-val (bound-state-boundary-value u-final r-max h)
+            nodes (count-nodes u-final)]
+        {:energy E-root
+         :wavefunction u-final
+         :boundary-value u-final-val
+         :nodes nodes
+         :converged? (and (= nodes target-nodes)
+                         (< (Math/abs u-final-val) 0.1))})
+      ;; If no sign change, find minimum |u(r_max)| using grid search
+      (let [;; Search for minimum boundary value with more points
+            search-points 100
+            candidates (for [i (range (inc search-points))]
+                         (let [E-test (+ E-lo (* i (/ (- E-hi E-lo) search-points)))
+                               u-test (solve-bound-state-numerov E-test l v0 rad diff h r-max)
+                               u-test-val (bound-state-boundary-value u-test r-max h)
+                               nodes-test (count-nodes u-test)]
+                           {:energy E-test
+                            :wavefunction u-test
+                            :boundary-value u-test-val
+                            :boundary-abs (Math/abs u-test-val)
+                            :nodes nodes-test}))
+            best (apply min-key :boundary-abs candidates)]
+        {:energy (:energy best)
+         :wavefunction (:wavefunction best)
+         :boundary-value (:boundary-value best)
+         :nodes (:nodes best)
+         :converged? (and (= (:nodes best) target-nodes)
+                         (< (:boundary-abs best) 0.1))}))))
 
 (defn find-bound-state-energy
   "Find bound state energy using shooting method.
@@ -308,10 +345,10 @@
        because bound states are ordered: E(n=1) < E(n=2) < E(n=3) < ..."
   ([V-params l n r-max h]
    (let [v0 (first V-params)]
-     (find-bound-state-energy V-params l n r-max h (- (- v0) 60.0) -0.1 0.01)))
+     (find-bound-state-energy V-params l n r-max h (- v0) -0.1 0.01)))
   ([V-params l n r-max h E-min E-max tolerance]
      (let [v0 (first V-params)
-         expected-nodes (- n 1)  ; n=1 has 0 nodes, n=2 has 1 node, etc.
+           expected-nodes (- n 1)  ; n=1 has 0 nodes, n=2 has 1 node, etc.
          ;; Energy ranges: deeper states have lower (more negative) energies
          ;; For a Woods-Saxon well of depth V0:
          ;; - Ground state (n=1) is typically around -V0/2 to -V0/3
@@ -332,12 +369,14 @@
          ;; Coarse scan with more points for better resolution
          coarse-result (find-energy-with-nodes E-search-min E-search-max 150 expected-nodes 
                                                 V-params l r-max h)
-         E-guess (:energy coarse-result)]
+         E-guess (:energy coarse-result)
+         coarse-boundary (Math/abs (:boundary-value coarse-result))]
      ;; Always try to refine if we found correct nodes
      (if (= (:nodes coarse-result) expected-nodes)
-       (let [refined (refine-bound-state-energy E-guess expected-nodes V-params l r-max h tolerance)]
-         ;; If refinement improved, use it; otherwise try wider search
-         (if (< (Math/abs (:boundary-value refined)) (Math/abs (:boundary-value coarse-result)))
+       (let [refined (refine-bound-state-energy E-guess expected-nodes V-params l r-max h tolerance)
+             refined-boundary (Math/abs (:boundary-value refined))]
+         ;; If refinement improved significantly, use it; otherwise try wider search
+         (if (< refined-boundary (* 0.5 coarse-boundary))
            refined
            (let [E-wide-min (- (* v0 0.8))  ; Wider range: -40 MeV
                  E-wide-max (- (* v0 0.1))   ; Up to -5 MeV
