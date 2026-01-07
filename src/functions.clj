@@ -311,6 +311,51 @@
       Double/NaN
       (/ u (* r u-prime)))))
 
+(defn interpolate [wave-function r r-max]
+  "Interpolate wave function value at radius r from discrete wave-function values.
+   
+   Parameters:
+   - wave-function: Vector/list of wave-function values at discrete points
+   - r: Radius at which to interpolate (must be between 0 and r-max)
+   - r-max: Maximum radius corresponding to the last wave-function value
+   
+   Returns: Interpolated wave-function value at radius r
+   
+   Uses linear interpolation between the two nearest grid points.
+   Assumes the first value corresponds to r=0 and the last to r=r-max."
+  (let [n-points (count wave-function)]
+    (cond
+      ;; Edge case: empty or single point
+      (<= n-points 1)
+      (if (empty? wave-function)
+        0.0
+        (first wave-function))
+      ;; If r is exactly at a grid point or beyond r-max
+      (<= r 0.0)
+      (first wave-function)
+      (>= r r-max)
+      (last wave-function)
+      ;; Linear interpolation between two nearest points
+      :else
+      (let [;; Calculate step size: h = r-max / (n-points - 1)
+            ;; since we have n-points values from r=0 to r=r-max
+            h (/ r-max (dec n-points))
+            ;; Find the index where r falls: idx = r / h
+            idx (/ r h)
+            idx-floor (int (Math/floor idx))
+            idx-ceil (min (inc idx-floor) (dec n-points))
+            ;; Handle edge cases
+            idx-floor (max 0 (min idx-floor (dec n-points)))
+            r-floor (* idx-floor h)
+            r-ceil (* idx-ceil h)
+            u-floor (get wave-function idx-floor)
+            u-ceil (get wave-function idx-ceil)
+            ;; Linear interpolation: u(r) = u_floor + (u_ceil - u_floor) * (r - r_floor) / (r_ceil - r_floor)
+            weight (if (zero? (- r-ceil r-floor))
+                     0.0
+                     (/ (- r r-floor) (- r-ceil r-floor)))]
+        (+ u-floor (* weight (- u-ceil u-floor)))))))
+
 (defn phase-shift-from-numerov [u h r-boundary e l]
   "Extract phase shift from Numerov wavefunction solution using S-matrix method (same as phase-shift0)"
   (let [{:keys [u u-prime r]} (extract-wavefunction-at-boundary u h r-boundary)

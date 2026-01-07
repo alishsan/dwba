@@ -1,6 +1,6 @@
 (ns dwba.fastmath-test
   (:require [clojure.test :refer :all]
-            [fastmath.special :as spec]
+            [fastmath.special.hypergeometric :as hg]
             [fastmath.complex :as cplx]))
 
 (deftest tricomi-U-complex-test
@@ -8,7 +8,7 @@
     (let [z (cplx/complex 2 -1)  ; 2 - i
           a 4.0
           b cplx/I              ; imaginary unit
-          result (spec/tricomi-U-complex z a b)]
+          result (hg/tricomi-U-complex z a b)]
       (println "=== Tricomi-U-Complex Test ===")
       (println "Input:")
       (println "  z = 2 - i = " z)

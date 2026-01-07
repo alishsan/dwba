@@ -8,6 +8,10 @@
 
 (defrecord complex-number [real imag])
 
+;; Predicate to check whether a value is an instance of our complex number type
+(defn complex? [x]
+  (and (map? x) (contains? x :real) (contains? x :imag)))
+
 (defn complex-from-cartesian [real imag]
   "Create a complex number by specifying cartesian coordinates."
   (->complex-number real imag))

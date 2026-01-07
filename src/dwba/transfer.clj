@@ -16,7 +16,7 @@
   "Power series expansion for bound state near rho=0 (dimensionless).
    For bound states: u(rho) ≈ rho^(l+1) for small rho.
    This is the same as the naive start for scattering states."
-  (Math/pow rho (inc l)))
+  (m/pow rho (inc l)))
 
 (defn woods-saxon-dimensionless [rho alpha]
   "Woods-Saxon potential in dimensionless form.
@@ -125,6 +125,80 @@
       ;; So we need: u(h) = R0 * u(h_rho) = R0 * (h/R0) = h ✓
       ;; Therefore, we scale by R0 to convert from dimensionless to physical
       (mapv #(* rad %) results))))
+
+(defn solve-bound-state-numerov-dimensionless [epsilon l lambda alpha h-rho rho-max]
+  "Solve the radial Schrödinger equation for a bound state using Numerov method
+   with DIMENSIONLESS variables.
+   
+   Parameters (all in physical units):
+   - e: Energy in MeV (must be negative for bound states)
+   - l: Orbital angular momentum quantum number
+   - v0: Woods-Saxon potential depth in MeV
+   - rad: R0 parameter (nuclear radius) in fm
+   - diff: a0 parameter (surface diffuseness) in fm
+   - h: Step size in fm
+
+   
+
+   
+  Parameters: dimensionless variables:
+
+   - ε = E/V0 (dimensionless energy)
+  - l: Orbital angular momentum quantum number
+   - λ = (2μ/ħ²) · V0 · R0² (dimensionless coupling)
+   - α = a0/R0 (dimensionless diffuseness)
+   - h_ρ = h/R0 (dimensionless step size)
+   - rho-max: Maximum radius for integration (rho-max = r-max /rad)
+
+   Returns: Vector of wavefunction values u(rho) at each grid point.
+
+   Note:   - ρ = r/R0 (dimensionless radius)
+   Note: For bound states, we expect u(r → ∞) → 0. This function
+   just integrates; use find-bound-state-energy to find the correct energy."
+  (let [               
+       steps (int (/ rho-max h-rho))
+        ;; Initialize with bound state start: u(rho) ≈ rho^(l+1)
+        ;; Note: u(rho) is the dimensionless radial wavefunction
+        ;; For l=0: u(rho) ≈ rho, so u(h_rho) ≈ h_rho
+        ;; For l=1: u(rho) ≈ rho^2, so u(h_rho) ≈ h_rho^2
+        u0 0.0
+        u1 (bound-state-start h-rho l)  ; u1 = h_rho^(l+1) in dimensionless units
+        
+        ;; Pre-calculate f(rho) values for Numerov in dimensionless form
+        ;; f(rho) = λ · [v(rho) + l(l+1)/(rho²) - ε]
+        ;; For bound states, ε < 0, so f(rho) > 0 in classically allowed region
+        fs (mapv (fn [rho] 
+                   (if (zero? rho)
+                     0.0  ; f(0) is infinite, but u(0)=0, so f(0)*u(0)=0
+                     (f-rho-numerov-dimensionless rho epsilon l lambda alpha)))
+                 (take (+ steps 2) (iterate #(+ % h-rho) 0.0)))
+        h-rho2-12 (/ (* h-rho h-rho) 12.0)]
+    
+    (let [results (loop [n 1
+                         results [u0 u1]]
+                    (if (>= n (dec steps))
+                      results
+                      (let [un (get results n)
+                            un-1 (get results (dec n))
+                            fn-1 (get fs (dec n))
+                            fn (get fs n)
+                            fn+1 (get fs (inc n))
+                            
+                            ;; Numerov step formula (dimensionless)
+                            numerator (+ (* 2.0 un) 
+                                         (- un-1) 
+                                         (* h-rho2-12 (+ (* 10.0 fn un) (* fn-1 un-1))))
+                            denominator (- 1.0 (* h-rho2-12 fn+1))
+                            un+1 (/ numerator denominator)]
+                        (recur (inc n) (conj results un+1)))))]
+      ;; The radial wavefunction u(r) should satisfy u(r) ≈ r^(l+1) for small r
+      ;; In dimensionless: u(rho) ≈ rho^(l+1) where rho = r/R0
+      ;; For l=0: u(rho) ≈ rho, so u(h_rho) = h_rho = h/R0
+      ;; But we want u(h) = h in physical units
+      ;; So we need: u(h) = R0 * u(h_rho) = R0 * (h/R0) = h ✓
+      ;; Therefore, we scale by R0 to convert from dimensionless to physical
+       results)))
+
 
 (defn bound-state-boundary-value [u r-max h]
   "Check the boundary condition for a bound state.
