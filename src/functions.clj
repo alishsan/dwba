@@ -477,6 +477,20 @@ rho (* k a) ]
     Double/POSITIVE_INFINITY
     (- (- (* (/ l x) (k-l l x)) (k-l (inc l) x)))))
 
+(defn j-ratio [l x]
+  "Ratio j_{l-1}(x) / j_l(x) for spherical Bessel functions."
+  (if (zero? l)
+    ;; For l=0, j_{-1} doesn't exist, use derivative form
+    (/ (j-l-deriv 0 x) (j-l 0 x))
+    (/ (j-l (dec l) x) (j-l l x))))
+
+(defn k-ratio [l x]
+  "Ratio k_{l-1}(x) / k_l(x) for modified spherical Bessel functions."
+  (if (zero? l)
+    ;; For l=0, k_{-1} doesn't exist, use derivative form
+    (/ (k-l-deriv 0 x) (k-l 0 x))
+    (/ (k-l (dec l) x) (k-l l x))))
+
 (defn finite-well-matching-error [xi eta l]
   "Returns the mismatch in the log-derivative matching condition at the well boundary.
    
@@ -506,14 +520,8 @@ rho (* k a) ]
           log-deriv-outside (/ k0-prime-eta k0-eta)]
       (- log-deriv-inside log-deriv-outside))
     ;; For l > 0, use recurrence relation form
-    (let [j-l-xi (j-l l xi)
-          j-lm1-xi (j-l (dec l) xi)
-          k-l-eta (k-l l eta)
-          k-lm1-eta (k-l (dec l) eta)
-          ;; Left side: xi * j_{l-1}(xi) / j_l(xi)
-          left (* xi (/ j-lm1-xi j-l-xi))
-          ;; Right side: eta * k_{l-1}(eta) / k_l(eta) (note: positive, not negative)
-          right (* eta (/ k-lm1-eta k-l-eta))]
+    (let [left (* xi (j-ratio l xi))
+          right (* eta (k-ratio l eta))]
       ;; Matching condition: left + right = 0 (since right should be negative of left)
       (+ left right))))
 
@@ -558,60 +566,152 @@ rho (* k a) ]
               (recur mid high (inc iter))
               (recur low mid (inc iter)))))))))
 
+(defn secant [f x0 x1 tolerance max-iters]
+  "Secant method for root finding.
+   
+   The secant method is faster than bisection for smooth functions, but doesn't
+   guarantee convergence. It uses linear interpolation between two points to
+   approximate the root.
+   
+   Parameters:
+   - f: Function to find root of
+   - x0: First initial guess
+   - x1: Second initial guess (should be different from x0)
+   - tolerance: Convergence tolerance (stop when |f(x)| < tolerance or |x_n - x_{n-1}| < tolerance)
+   - max-iters: Maximum number of iterations
+   
+   Returns: {:root, :value, :iterations, :converged?}
+   - root: The root found
+   - value: f(root) - should be close to 0
+   - iterations: Number of iterations used
+   - converged?: Whether convergence was achieved
+   
+   Algorithm:
+   x_{n+1} = x_n - f(x_n) * (x_n - x_{n-1}) / (f(x_n) - f(x_{n-1}))
+   
+   Example:
+   (secant #(- (* % %) 4) 1.0 3.0 1e-10 100)
+   => Finds root of x² - 4 = 0 (should be x = 2)"
+  (let [f-x0 (f x0)
+        f-x1 (f x1)]
+    ;; Check if we already have a root
+    (if (< (Math/abs f-x0) tolerance)
+      {:root x0
+       :value f-x0
+       :iterations 0
+       :converged? true}
+      (if (< (Math/abs f-x1) tolerance)
+        {:root x1
+         :value f-x1
+         :iterations 0
+         :converged? true}
+        ;; Check if denominator would be zero (function values are equal)
+        (if (< (Math/abs (- f-x1 f-x0)) 1e-15)
+          {:root x1
+           :value f-x1
+           :iterations 0
+           :converged? false
+           :error "Function values at initial guesses are too close"}
+          ;; Iterate using secant method
+          (loop [x-prev x0
+                 x-curr x1
+                 f-prev f-x0
+                 f-curr f-x1
+                 iter 0]
+            (if (or (>= iter max-iters)
+                    (< (Math/abs f-curr) tolerance)
+                    (< (Math/abs (- x-curr x-prev)) tolerance))
+              {:root x-curr
+               :value f-curr
+               :iterations iter
+               :converged? (< (Math/abs f-curr) tolerance)}
+              (let [;; Secant method formula
+                    denominator (- f-curr f-prev)
+                    ;; Avoid division by zero
+                    x-next (if (< (Math/abs denominator) 1e-15)
+                             x-curr  ; If denominator too small, don't update
+                             (- x-curr (* f-curr (/ (- x-curr x-prev) denominator))))
+                    f-next (f x-next)]
+                (recur x-curr x-next f-curr f-next (inc iter))))))))))
+
+(defn solver-step [l z0 e-ratio]
+  "Returns a map of {f(E), f'(E)} for the energy ratio e = |E|/V0.
+   
+   Parameters:
+   - l: Orbital angular momentum quantum number
+   - z0: Dimensionless well depth parameter
+   - e-ratio: |E|/V0 (dimensionless energy, 0 < e-ratio < 1)
+   
+   Returns: {:f f-val, :f-prime f-prime}
+   - f: Function value (matching error)
+   - f-prime: Derivative of function w.r.t. e-ratio
+   
+   Uses Newton-Raphson method with analytical derivatives."
+  (let [eta (* z0 (m/sqrt e-ratio))
+        xi (* z0 (m/sqrt (- 1 e-ratio)))
+        ;; Function values
+        left-val (* xi (j-ratio l xi))
+        right-val (* (- eta) (k-ratio l eta))
+        f-val (- left-val right-val)
+        ;; Raw derivatives w.r.t xi and eta
+        ;; d/dxi [xi * j_ratio] = 1 + xi * d(j_ratio)/dxi
+        ;; Using recurrence: d(j_{l-1}/j_l)/dxi = (2l-1)/xi * (j_{l-1}/j_l) - (j_{l-1}/j_l)^2
+        j-rat (j-ratio l xi)
+        k-rat (k-ratio l eta)
+        d-left-dxi (+ 1 (* (- (/ (dec (* 2 l)) xi)) left-val) (* left-val left-val))
+        ;; d/deta [-eta * k_ratio] = -1 - eta * d(k_ratio)/deta
+        ;; Similar recurrence for k_ratio
+        d-right-deta (- (+ 1 (* (/ (dec (* 2 l)) eta) (- right-val)) (* right-val right-val)))
+        ;; Chain rule: d/de-ratio = (d/dxi * dxi/de) + (d/deta * deta/de)
+        ;; dxi/de = -z0 / (2 * sqrt(1-e)), deta/de = z0 / (2 * sqrt(e))
+        dxi-de (/ (- z0) (* 2.0 (m/sqrt (- 1.0 e-ratio))))
+        deta-de (/ z0 (* 2.0 (m/sqrt e-ratio)))
+        f-prime (+ (* d-left-dxi dxi-de) (* (- d-right-deta) deta-de))]
+    {:f f-val :f-prime f-prime}))
+
 (defn find-bound-state-finite-well [l z0]
-  "Finds bound state energies for a finite square well using k-l and j-l functions.
+  "Finds bound state energies for a finite square well using Newton-Raphson method.
    
    Parameters:
    - l: Orbital angular momentum quantum number
    - z0: Dimensionless well depth parameter z0 = a * sqrt(2mV0)/hbar
          where a is the well radius and V0 is the well depth
    
-   Returns: {:e-ratio, :xi, :eta, :energy, :converged?}
+   Returns: {:e-ratio, :xi, :eta, :energy, :converged?, :iterations}
    - e-ratio: |E|/V0 (dimensionless energy, 0 < e-ratio < 1)
    - xi: ka = z0 * sqrt(1 - e_ratio) (dimensionless wave number inside well)
    - eta: kappa*a = z0 * sqrt(e_ratio) (dimensionless decay parameter outside well)
    - energy: e-ratio (same as e-ratio, for convenience)
-   - converged?: Whether the bisection converged
+   - converged?: Whether Newton-Raphson converged
+   - iterations: Number of iterations used
    
    The relationship between xi and eta is: xi^2 + eta^2 = z0^2
    This comes from: k^2 = 2m(E+V0)/hbar^2 and kappa^2 = 2m|E|/hbar^2
    so: (ka)^2 + (kappa*a)^2 = (2mV0/hbar^2) * a^2 = z0^2
    
-   Uses bisection to find the root of the transcendental matching condition.
-   Searches in the range [0.1, 0.9] where the first bound state typically lies."
-  (let [;; Define function to find root of: f(e-ratio) = matching error
-        f (fn [e-ratio]
-            (let [xi (* z0 (m/sqrt (- 1 e-ratio)))  ; xi = z0 * sqrt(1 - e_ratio)
-                  eta (* z0 (m/sqrt e-ratio))]       ; eta = z0 * sqrt(e_ratio)
-              (finite-well-matching-error xi eta l)))
-        ;; Search in a reasonable range where bound states typically occur
-        ;; For ground state, e-ratio is usually between 0.1 and 0.9
-        ;; We'll search multiple ranges if needed
-        search-ranges [[0.1 0.5] [0.3 0.7] [0.5 0.9]]
-        ;; Try each range until we find a root
-        result (loop [ranges search-ranges]
-                 (if (empty? ranges)
-                   {:root 0.5
-                    :value (f 0.5)
-                    :iterations 0
-                    :converged? false
-                    :error "No root found in search ranges"}
-                   (let [[low high] (first ranges)
-                         f-low (f low)
-                         f-high (f high)]
-                     (if (not= (m/signum f-low) (m/signum f-high))
-                       (bisection f low high 1e-7 100)
-                       (recur (rest ranges))))))
-        e-ratio (:root result)
-        xi (* z0 (m/sqrt (- 1 e-ratio)))
-        eta (* z0 (m/sqrt e-ratio))]
-    {:e-ratio e-ratio
-     :xi xi
-     :eta eta
-     :energy e-ratio
-     :converged? (:converged? result)
-     :matching-error (:value result)
-     :iterations (:iterations result)}))
+   Uses Newton-Raphson method with analytical derivatives for faster convergence."
+  (let [initial-guess 0.5  ; Start in middle of range [0, 1]
+        tolerance 1e-9
+        max-iters 20]
+    (loop [e-ratio initial-guess
+           iters 0]
+      (let [{:keys [f f-prime]} (solver-step l z0 e-ratio)
+            next-e (- e-ratio (/ f f-prime))
+            ;; Clamp to valid range [0.001, 0.999] to avoid numerical issues
+            next-e (max 0.001 (min 0.999 next-e))
+            converged? (< (m/abs (- next-e e-ratio)) tolerance)]
+        (if (or (>= iters max-iters) converged?)
+          (let [xi (* z0 (m/sqrt (- 1 next-e)))
+                eta (* z0 (m/sqrt next-e))
+                final-error (finite-well-matching-error xi eta l)]
+            {:e-ratio next-e
+             :xi xi
+             :eta eta
+             :energy next-e
+             :converged? (and converged? (< (m/abs final-error) 1e-6))
+             :matching-error final-error
+             :iterations iters})
+          (recur next-e (inc iters)))))))
 
 (defn find-all-bound-states [l z0]
   "Finds all bound states for a given l and z0.
