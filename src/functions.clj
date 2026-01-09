@@ -103,6 +103,10 @@
                    (/ (* l (inc l)) (* mass-factor r r)))]
       (* mass-factor (- v-eff e)))))
 
+(defn plot-function [f start end step &y]
+(mapv (fn [x] [x (apply f x &y)] ) (range start end step ))
+  )
+
 (defn bessel-start-l1 [r q]
   "Power series expansion for Riccati-Bessel function F1 near r=0 for l=1"
   ;; Use power series to avoid numerical underflow near origin

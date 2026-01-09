@@ -91,13 +91,14 @@
         u0 0.0
         u1 (bound-state-start h-rho l)  ; u1 = h_rho^(l+1) in dimensionless units
         
-        ;; Pre-calculate f(rho) values for Numerov in dimensionless form
-        ;; f(rho) = λ · [v(rho) + l(l+1)/(rho²) - ε]
-        ;; For bound states, ε < 0, so f(rho) > 0 in classically allowed region
+        ;; Pre-calculate f(r) values for Numerov using f-r-numerov (physical units)
+        ;; Convert dimensionless rho back to physical r: r = rho * rad
+        ;; f(r) = mass-factor * (V_eff - E) where V_eff = V_WS + l(l+1)/(mass-factor * r^2)
         fs (mapv (fn [rho] 
                    (if (zero? rho)
                      0.0  ; f(0) is infinite, but u(0)=0, so f(0)*u(0)=0
-                     (f-rho-numerov-dimensionless rho epsilon l lambda alpha)))
+                     (let [r (* rho rad)]  ; Convert dimensionless rho to physical r
+                       (f-r-numerov r e l v0 rad diff))))
                  (take (+ steps 2) (iterate #(+ % h-rho) 0.0)))
         h-rho2-12 (/ (* h-rho h-rho) 12.0)]
     
