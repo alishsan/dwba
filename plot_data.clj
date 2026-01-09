@@ -1,7 +1,11 @@
 #!/usr/bin/env clojure
 
 (ns plot-data
-  (:require [clj-xchart.core :as xchart]))
+  (:require [incanter.core :as i]
+            [incanter.charts :as c]))
+
+;; Note: This file should be named plot-data.clj to match the namespace
+;; For now, load it using: lein repl then (load-file "plot_data.clj")
 
 ;; Data provided by user (x, y1, y2)
 (def data
@@ -309,48 +313,45 @@
 (def y1s (map second data))
 (def y2s (map #(nth % 2) data))
 
+;; Create output directory if it doesn't exist
+(.mkdirs (java.io.File. "output"))
+
 ;; Create combined plot with both y1 and y2
-(let [chart (xchart/xy-chart
-             {:title "Data Plot (Y1 and Y2)"
-              :x-label "X"
-              :y-label "Y1 / Y2"
-              :series [{:name "Y1"
-                        :x (vec xs)
-                        :y (vec y1s)
-                        :chart-type :line
-                        :color :blue}
-                       {:name "Y2"
-                        :x (vec xs)
-                        :y (vec y2s)
-                        :chart-type :line
-                        :color :red}]})]
-  (xchart/save chart "output/data_plot_cljplot.png")
-  (xchart/view chart))
+(let [chart (-> (c/xy-plot xs y1s 
+                           :title "Data Plot (Y1 and Y2)"
+                           :x-label "X"
+                           :y-label "Y1 / Y2"
+                           :series-label "Y1"
+                           :legend true)
+                (c/add-lines xs y2s :series-label "Y2"))]
+  (i/save chart "output/data_plot_cljplot.png" :width 800 :height 600)
+  (println "Saved: output/data_plot_cljplot.png"))
 
 ;; Create separate plot for Y1
-(let [chart (xchart/xy-chart
-             {:title "Y1 vs X"
-              :x-label "X"
-              :y-label "Y1"
-              :series [{:name "Y1"
-                        :x (vec xs)
-                        :y (vec y1s)
-                        :chart-type :line
-                        :color :blue}]})]
-  (xchart/save chart "output/data_plot_y1_cljplot.png")
-  (xchart/view chart))
+(let [chart (c/xy-plot xs y1s
+                       :title "Y1 vs X"
+                       :x-label "X"
+                       :y-label "Y1"
+                       :series-label "Y1"
+                       :legend true)]
+  (i/save chart "output/data_plot_y1_cljplot.png" :width 800 :height 600)
+  (println "Saved: output/data_plot_y1_cljplot.png"))
 
 ;; Create separate plot for Y2
-(let [chart (xchart/xy-chart
-             {:title "Y2 vs X"
-              :x-label "X"
-              :y-label "Y2"
-              :series [{:name "Y2"
-                        :x (vec xs)
-                        :y (vec y2s)
-                        :chart-type :line
-                        :color :red}]})]
-  (xchart/save chart "output/data_plot_y2_cljplot.png")
-  (xchart/view chart))
+(let [chart (c/xy-plot xs y2s
+                       :title "Y2 vs X"
+                       :x-label "X"
+                       :y-label "Y2"
+                       :series-label "Y2"
+                       :legend true)]
+  (i/save chart "output/data_plot_y2_cljplot.png" :width 800 :height 600)
+  (println "Saved: output/data_plot_y2_cljplot.png")
+  ;; Try to view - works in lein repl, may not work in cider
+  (try
+    (i/view chart)
+    (catch Exception e
+      (println "Note: Could not display chart (this is normal in CIDER/headless environments)")
+      (println "Chart saved to: output/data_plot_y2_cljplot.png"))))
 
-(println "Plots saved to output/ directory")
+(println "\nAll plots saved to output/ directory")
+(println "To view plots, open the PNG files in output/ directory")

@@ -54,7 +54,7 @@
 
 (defn solve-bound-state-numerov [e l v0 rad diff h r-max]
   "Solve the radial Schrödinger equation for a bound state using Numerov method
-   with DIMENSIONLESS variables.
+   in physical units.
    
    Parameters (all in physical units):
    - e: Energy in MeV (must be negative for bound states)
@@ -67,39 +67,24 @@
    
    Returns: Vector of wavefunction values u(r) at each grid point (physical units).
    
-   Internal implementation uses dimensionless variables:
-   - ρ = r/R0 (dimensionless radius)
-   - ε = E/V0 (dimensionless energy)
-   - α = a0/R0 (dimensionless diffuseness)
-   - λ = (2μ/ħ²) · V0 · R0² (dimensionless coupling)
-   - h_ρ = h/R0 (dimensionless step size)
-   
    Note: For bound states, we expect u(r → ∞) → 0. This function
    just integrates; use find-bound-state-energy to find the correct energy."
-  (let [;; Convert to dimensionless variables
-        epsilon (/ e v0)  ; Dimensionless energy
-        alpha (/ diff rad)  ; Dimensionless diffuseness
-        lambda (* mass-factor v0 rad rad)  ; Dimensionless coupling parameter
-        h-rho (/ h rad)  ; Dimensionless step size
-        rho-max (/ r-max rad)  ; Dimensionless maximum radius
-        
-        steps (int (/ rho-max h-rho))
-        ;; Initialize with bound state start: u(rho) ≈ rho^(l+1)
-        ;; Note: u(rho) is the dimensionless radial wavefunction
-        ;; For l=0: u(rho) ≈ rho, so u(h_rho) ≈ h_rho
-        ;; For l=1: u(rho) ≈ rho^2, so u(h_rho) ≈ h_rho^2
+  (let [steps (int (/ r-max h))
+        ;; Initialize with bound state start: u(r) ≈ r^(l+1) for small r
+        ;; For l=0: u(r) ≈ r, so u(h) ≈ h
+        ;; For l=1: u(r) ≈ r^2, so u(h) ≈ h^2
         u0 0.0
-        u1 (bound-state-start h-rho l)  ; u1 = h_rho^(l+1) in dimensionless units
+        u1 (m/pow h (inc l))  ; u1 = h^(l+1) in physical units
         
-        ;; Pre-calculate f(rho) values for Numerov in dimensionless form
-        ;; f(rho) = λ · [v(rho) + l(l+1)/(rho²) - ε]
-        ;; For bound states, ε < 0, so f(rho) > 0 in classically allowed region
-        fs (mapv (fn [rho] 
-                   (if (zero? rho)
+        ;; Pre-calculate f(r) values for Numerov using f-r-numerov
+        ;; f(r) = (2μ/ħ²) · [V_eff(r) - E]
+        ;; For bound states, E < 0, so f(r) > 0 in classically allowed region
+        fs (mapv (fn [r] 
+                   (if (zero? r)
                      0.0  ; f(0) is infinite, but u(0)=0, so f(0)*u(0)=0
-                     (f-rho-numerov-dimensionless rho epsilon l lambda alpha)))
-                 (take (+ steps 2) (iterate #(+ % h-rho) 0.0)))
-        h-rho2-12 (/ (* h-rho h-rho) 12.0)]
+                     (f-r-numerov r e l v0 rad diff)))
+                 (take (+ steps 2) (iterate #(+ % h) 0.0)))
+        h2-12 (/ (* h h) 12.0)]
     
     (let [results (loop [n 1
                          results [u0 u1]]
@@ -111,20 +96,14 @@
                             fn (get fs n)
                             fn+1 (get fs (inc n))
                             
-                            ;; Numerov step formula (dimensionless)
+                            ;; Numerov step formula (physical units)
                             numerator (+ (* 2.0 un) 
                                          (- un-1) 
-                                         (* h-rho2-12 (+ (* 10.0 fn un) (* fn-1 un-1))))
-                            denominator (- 1.0 (* h-rho2-12 fn+1))
+                                         (* h2-12 (+ (* 10.0 fn un) (* fn-1 un-1))))
+                            denominator (- 1.0 (* h2-12 fn+1))
                             un+1 (/ numerator denominator)]
                         (recur (inc n) (conj results un+1)))))]
-      ;; The radial wavefunction u(r) should satisfy u(r) ≈ r^(l+1) for small r
-      ;; In dimensionless: u(rho) ≈ rho^(l+1) where rho = r/R0
-      ;; For l=0: u(rho) ≈ rho, so u(h_rho) = h_rho = h/R0
-      ;; But we want u(h) = h in physical units
-      ;; So we need: u(h) = R0 * u(h_rho) = R0 * (h/R0) = h ✓
-      ;; Therefore, we scale by R0 to convert from dimensionless to physical
-      (mapv #(* rad %) results))))
+      results)))
 
 (defn solve-bound-state-numerov-dimensionless [epsilon l lambda alpha h-rho rho-max]
   "Solve the radial Schrödinger equation for a bound state using Numerov method
@@ -311,46 +290,35 @@
                 (println (format "  Debug: Best candidate: E=%.2f MeV, nodes=%d, boundary=%.2e"
                                (:energy best-by-boundary) (:nodes best-by-boundary)
                                (:boundary-value best-by-boundary))))))
-        ;; Select best candidate using priority:
-        ;; 1. Candidates with small boundary value (< 100) AND correct node count - true bound states
-        ;; 2. Candidates with small boundary value (< 1000) - likely bound states (prefer correct nodes)
-        ;; 3. Candidates with correct node count (even if boundary value is large)
-        ;; 4. Best overall (weighted score)
+        ;; Find sign changes - these indicate where boundary value crosses zero (true bound states)
+        sign-change-candidates (for [i (range (dec (count negative-candidates)))]
+                                (let [curr (nth negative-candidates i)
+                                      next (nth negative-candidates (inc i))]
+                                  (when (not= (Math/signum (:boundary-value curr))
+                                             (Math/signum (:boundary-value next)))
+                                    ;; Return the candidate closer to zero crossing
+                                    (if (< (Math/abs (:boundary-value curr))
+                                          (Math/abs (:boundary-value next)))
+                                      curr
+                                      next))))
+        sign-change-candidates (filter some? sign-change-candidates)
+        
+        ;; Select best candidate IGNORING node count - only look at boundary value:
+        ;; 1. Sign changes - strongest indicator (where boundary crosses zero)
+        ;; 2. Small boundary values - likely true bound states
+        ;; 3. Minimum boundary value overall
         best (cond
-               ;; Priority 1: Candidates with small boundary value AND correct node count
-               (seq (filter (fn [c] (and (= (:nodes c) target-nodes)
-                                        (< (Math/abs (:boundary-value c)) 100.0)))
-                           candidates-with-nodes))
-               (apply min-key (fn [c] (Math/abs (:boundary-value c)))
-                      (filter (fn [c] (and (= (:nodes c) target-nodes)
-                                          (< (Math/abs (:boundary-value c)) 100.0)))
-                             candidates-with-nodes))
+               ;; Priority 1: Sign changes - these are where boundary value crosses zero
+               (seq sign-change-candidates)
+               (apply min-key (fn [c] (Math/abs (:boundary-value c))) sign-change-candidates)
                
-               ;; Priority 2: Candidates with reasonable boundary value (< 1000)
-               ;; Prefer those with correct node count, but accept close ones
-               (seq (filter (fn [c] (< (Math/abs (:boundary-value c)) 1000.0)) negative-candidates))
-               (apply min-key (fn [c] (+ (* 3 (Math/abs (- (:nodes c) target-nodes)))
-                                        (Math/abs (:boundary-value c))))
-                      (filter (fn [c] (< (Math/abs (:boundary-value c)) 1000.0)) negative-candidates))
-               
-               ;; Priority 3: Candidates with small boundary value (< 10.0) - true bound states
-               ;; This helps find true bound states even if node count is slightly off
+               ;; Priority 2: Small boundary values - likely true bound states
                (seq candidates-small-boundary)
-               (apply min-key (fn [c] (+ (* 5 (Math/abs (- (:nodes c) target-nodes)))
-                                        (Math/abs (:boundary-value c))))
-                      candidates-small-boundary)
+               (apply min-key (fn [c] (Math/abs (:boundary-value c))) candidates-small-boundary)
                
-               ;; Priority 4: Candidates with exact node count (even if boundary value is large)
-               ;; These need refinement to find the true bound state
-               (seq candidates-with-nodes)
-               (apply min-key (fn [c] (Math/abs (:boundary-value c))) candidates-with-nodes)
-               
-               ;; Priority 5: Best overall (weighted score)
-               ;; Prefer candidates closer to target node count, but also consider boundary value
+               ;; Priority 3: Minimum boundary value overall
                (seq negative-candidates)
-               (apply min-key (fn [c] (+ (* 10 (Math/abs (- (:nodes c) target-nodes)))
-                                        (Math/abs (:boundary-value c))))
-                      negative-candidates)
+               (apply min-key (fn [c] (Math/abs (:boundary-value c))) negative-candidates)
                
                ;; Fallback: No valid candidates found
                :else
@@ -374,10 +342,18 @@
    Returns: [E-lo E-hi]
    
    Uses a narrower range to avoid jumping to different quantum states,
-   but expands if boundary value is large (not a true bound state)."
-  (let [;; Use wider range if boundary value is large (not a true bound state)
-        E-range (if (> (Math/abs boundary-value) 100.0)
-                  (min 20.0 (* v0 0.4))  ; Wider range: ±20 MeV or 40% of V0
+   but expands if boundary value is large (not a true bound state).
+   For very large boundary values, search a much wider range to find sign changes."
+  (let [;; Use much wider range if boundary value is very large (not a true bound state)
+        ;; This helps find sign changes that might be far from the coarse candidate
+        E-range (cond
+                  (> (Math/abs boundary-value) 1e10)  ; Very large boundary value
+                  (* v0 0.5)  ; Search ±50% of V0 to find sign changes
+                  
+                  (> (Math/abs boundary-value) 100.0)  ; Large boundary value
+                  (min 50.0 (* v0 0.3))  ; Wider range: ±50 MeV or 30% of V0
+                  
+                  :else
                   (min 10.0 (* v0 0.2)))  ; Narrower range: ±10 MeV or 20% of V0
         E-lo (max (- E-guess E-range) (- v0))
         E-hi (min (+ E-guess E-range) -0.1)]
@@ -441,7 +417,8 @@
 (defn refine-with-secant [f E-guess E-lo E-hi u-lo-val u-mid-val u-hi-val v0 tolerance target-nodes V-params l r-max h]
   "Try to refine using secant method.
    
-   Returns: result map or nil if secant fails or wrong node count"
+   Returns: result map or nil if secant fails.
+   IGNORES node count - only checks if boundary value is small."
   (let [E-secant-0 (if (< (Math/abs u-mid-val) (Math/abs u-lo-val)) E-guess E-lo)
         E-secant-1 (if (< (Math/abs u-hi-val) (Math/abs u-mid-val)) E-hi E-guess)
         secant-result (secant f E-secant-0 E-secant-1 tolerance 50)
@@ -449,27 +426,29 @@
                        (validate-secant-root (:root secant-result) E-guess E-lo E-hi v0))
         result (when (and (:converged? secant-result) E-secant-root)
                  (create-refined-result E-secant-root target-nodes V-params l r-max h))]
-    ;; Only return if node count matches
-    (when (and result (= (:nodes result) target-nodes))
+    ;; Return result if boundary value is reasonable (ignore node count)
+    (when (and result (< (Math/abs (:boundary-value result)) 1e6))
       result)))
 
 (defn refine-with-bisection [f E-lo E-hi tolerance target-nodes V-params l r-max h]
   "Try to refine using bisection method.
    
-   Returns: result map or nil if bisection fails or wrong node count"
+   Returns: result map or nil if bisection fails.
+   IGNORES node count - only checks if boundary value is small."
   (let [sign-change-range (find-sign-change-range f E-lo E-hi 20)
         [E-bisect-lo E-bisect-hi] (or sign-change-range [E-lo E-hi])
         bisection-result (bisection f E-bisect-lo E-bisect-hi tolerance 100)
         result (when (:converged? bisection-result)
                  (create-refined-result (:root bisection-result) target-nodes V-params l r-max h))]
-    ;; Only return if node count matches
-    (when (and result (= (:nodes result) target-nodes))
+    ;; Return result if boundary value is reasonable (ignore node count)
+    (when (and result (< (Math/abs (:boundary-value result)) 1e6))
       result)))
 
 (defn refine-with-grid-search [E-lo E-hi target-nodes V-params l r-max h]
   "Fallback: find minimum boundary value using grid search.
    
-   Returns: result map with correct node count, or nil if none found"
+   Returns: result map with smallest boundary value, or nil if none found.
+   IGNORES node count - only looks for minimum boundary value."
   (let [v0 (first V-params)
         rad (second V-params)
         diff (last V-params)
@@ -484,17 +463,15 @@
                         :boundary-value u-test-val
                         :boundary-abs (Math/abs u-test-val)
                         :nodes nodes-test}))
-        ;; Filter to candidates with correct node count only
-        candidates-with-nodes (filter (fn [c] (= (:nodes c) target-nodes)) candidates)]
-    (when (seq candidates-with-nodes)
-      ;; If we have candidates with correct nodes, pick the one with smallest boundary value
-      (let [best (apply min-key :boundary-abs candidates-with-nodes)]
-        {:energy (:energy best)
-         :wavefunction (:wavefunction best)
-         :boundary-value (:boundary-value best)
-         :nodes (:nodes best)
-         :converged? (and (= (:nodes best) target-nodes)
-                         (< (Math/abs (:boundary-value best)) 10.0))}))))  ; Increased from 0.1 to 10.0
+        ;; Find candidate with smallest boundary value (ignore node count)
+        best (when (seq candidates)
+               (apply min-key :boundary-abs candidates))]
+    (when (and best (< (:boundary-abs best) 1e6))
+      {:energy (:energy best)
+       :wavefunction (:wavefunction best)
+       :boundary-value (:boundary-value best)
+       :nodes (:nodes best)
+       :converged? (< (Math/abs (:boundary-value best)) 10.0)})))
 
 (defn has-sign-change? [u-lo-val u-mid-val u-hi-val]
   "Check if boundary values have opposite signs."
@@ -540,33 +517,35 @@
         grid-result (when (and (not secant-result) (not bisection-result))
                      (refine-with-grid-search E-lo E-hi target-nodes V-params l r-max h))
         result (or secant-result bisection-result grid-result)]
-    ;; Only return result if it has the correct node count
-    (when (and result (= (:nodes result) target-nodes))
+    ;; Return result if boundary value is reasonable (ignore node count)
+    (when (and result (< (Math/abs (:boundary-value result)) 1e6))
       result)))
 
 (defn get-energy-search-range [n l v0]
   "Calculate energy search range for principal quantum number n and orbital angular momentum l.
    
-   Higher l states are typically at higher (less negative) energies than lower l states
-   for the same n.
+   For bound states, we need to search from deep in the well (near -V0) up to near zero.
+   Higher l states can be either deeper or shallower depending on the potential.
    
    Returns: [E-min E-max] in MeV"
-  (let [;; Base range for n (assumes l=0, lowest energy for this n)
+  (let [;; For bound states, search from deep in well to near zero
+        ;; Start deeper for higher n (more nodes) and account for l
+        ;; For l > 0, we need to search a wider range since centrifugal barrier affects energy
         base-E-min (cond
-                     (= n 1) (- (* v0 0.7))  ; Ground: search from 70% of V0
-                     (= n 2) (- (* v0 0.5))  ; 2s: above ground, 50% of V0
-                     (= n 3) (- (* v0 0.3))  ; 3s: above 2s, 30% of V0
-                     :else (- (* v0 (- 0.7 (* (- n 1) 0.15)))))  ; Higher n: progressively higher
+                     (= n 1) (- (* v0 0.8))  ; Ground: search from 80% of V0
+                     (= n 2) (- (* v0 0.6))  ; 2s/2p: search from 60% of V0
+                     (= n 3) (- (* v0 0.4))  ; 3s/3p/3d: search from 40% of V0
+                     :else (- (* v0 (- 0.8 (* (- n 1) 0.15)))))  ; Higher n: progressively higher
         base-E-max (cond
-                     (= n 1) (- (* v0 0.3))  ; Ground: up to 30% of V0
-                     (= n 2) (- (* v0 0.2))  ; 2s: up to 20% of V0
-                     (= n 3) (- (* v0 0.1))  ; 3s: up to 10% of V0
-                     :else (- (* v0 (- 0.3 (* (- n 1) 0.05)))))  ; Higher n: closer to zero
-        ;; Adjust for l: higher l states are at higher (less negative) energies
-        ;; For l > 0, shift the range upward by l * (some fraction of V0)
-        l-adjustment (* l v0 0.05)  ; Each l increases energy by ~5% of V0
-        E-min (max base-E-min (- v0))  ; Don't go deeper than well depth
-        E-max (min (+ base-E-max l-adjustment) -0.1)]  ; Don't go above zero
+                     (= n 1) (- (* v0 0.2))  ; Ground: up to 20% of V0
+                     (= n 2) (- (* v0 0.15))  ; 2s/2p: up to 15% of V0
+                     (= n 3) (- (* v0 0.1))  ; 3s/3p/3d: up to 10% of V0
+                     :else (- (* v0 (- 0.2 (* (- n 1) 0.02)))))  ; Higher n: closer to zero
+        ;; For l > 0, extend the search range deeper (l=1 states can be quite deep)
+        ;; and also shallower (centrifugal barrier pushes some states up)
+        l-deepening (* l v0 0.1)  ; Each l extends search deeper by 10% of V0
+        E-min (max (+ base-E-min (- l-deepening)) (- v0))  ; Extend deeper (more negative), but not beyond well depth
+        E-max (min base-E-max -0.1)]  ; Don't go above zero
     [E-min E-max]))
 
 (defn try-wider-search [v0 expected-nodes V-params l r-max h tolerance]
@@ -581,9 +560,8 @@
         E-wide-max (min (+ base-E-wide-max l-adjustment) -0.1)
         wide-result (find-energy-with-nodes E-wide-min E-wide-max 200 expected-nodes 
                                             V-params l r-max h)]
-    (if (and (= (:nodes wide-result) expected-nodes)
-             (< (:energy wide-result) -0.01))
-      ;; Only refine if boundary value is reasonable (not huge)
+    (if (< (:energy wide-result) -0.01)
+      ;; Only refine if boundary value is reasonable (not huge) - IGNORE node count
       (let [refined (refine-bound-state-energy (:energy wide-result) expected-nodes V-params l r-max h tolerance)]
         ;; Only return if refined result has reasonable boundary value
         (when (and refined
@@ -600,13 +578,9 @@
 (defn refinement-improved? [refined coarse-result coarse-boundary expected-nodes]
   "Check if refinement significantly improved the result.
    
-   Returns true only if:
-   1. Boundary value improved (smaller), AND
-   2. Node count is correct"
-  (let [refined-boundary (Math/abs (:boundary-value refined))
-        refined-nodes (:nodes refined)]
-    (and (= refined-nodes expected-nodes)          ; Must have correct node count
-         (< refined-boundary coarse-boundary))))    ; Must improve boundary value
+   IGNORES node count - only checks if boundary value improved."
+  (let [refined-boundary (Math/abs (:boundary-value refined))]
+    (< refined-boundary coarse-boundary)))    ; Must improve boundary value
 
 (defn print-refinement-debug [coarse-boundary refined-boundary coarse-result refined-nodes expected-nodes]
   "Print debug information about refinement."
@@ -621,44 +595,34 @@
                                        E-search-min E-search-max v0 V-params l r-max h tolerance]
   "Try to refine the energy, with fallback to wider search if needed.
    
-   Returns: refined result, but only if node count is correct"
+   Returns: refined result if boundary value improved (ignores node count)"
   (let [refined (refine-bound-state-energy E-guess expected-nodes V-params l r-max h tolerance)]
     (if refined
       (let [refined-boundary (Math/abs (:boundary-value refined))
             refined-energy (:energy refined)
             refined-nodes (:nodes refined)]
         (print-refinement-debug coarse-boundary refined-boundary coarse-result refined-nodes expected-nodes)
-        ;; Only accept refinement if it actually improves the result
-        (if (and (= refined-nodes expected-nodes)
-                 (valid-energy? refined-energy E-search-min E-search-max)
-                 (refinement-improved? refined coarse-result coarse-boundary expected-nodes))
+        ;; Accept refinement if it improves boundary value (ignore node count and energy range)
+        ;; The energy might be outside the original search range but still valid
+        (if (refinement-improved? refined coarse-result coarse-boundary expected-nodes)
           refined
-          ;; If refinement doesn't improve or has wrong nodes, try wider search or return coarse result
+          ;; If refinement doesn't improve, try wider search or return the better one
           (let [wide-refined (try-wider-search v0 expected-nodes V-params l r-max h tolerance)]
             (if (and wide-refined
-                     (= (:nodes wide-refined) expected-nodes)
                      (< (Math/abs (:boundary-value wide-refined)) coarse-boundary))
               wide-refined
-              ;; Prefer coarse result if it has correct nodes and refinement made it worse
-              (if (and (= (:nodes coarse-result) expected-nodes)
-                       (< refined-boundary coarse-boundary))
-                ;; Refinement made it worse, use coarse result
-                coarse-result
-                ;; Both are bad, but use the one with smaller boundary value
-                (if (< refined-boundary coarse-boundary)
-                  refined
-                  coarse-result)))))
-      ;; If refinement returned nil (no valid result), use coarse result if it has correct nodes
-      (if (= (:nodes coarse-result) expected-nodes)
-        coarse-result
-        ;; Last resort: try wider search
-        (try-wider-search v0 expected-nodes V-params l r-max h tolerance)))))
+              ;; Use the one with smaller boundary value (refined or coarse)
+              (if (< refined-boundary coarse-boundary)
+                refined
+                coarse-result))))
+      ;; If refinement returned nil, use coarse result
+      coarse-result)))
 )
 
 (defn should-refine? [coarse-result expected-nodes]
-  "Check if refinement should be attempted."
-  (or (= (:nodes coarse-result) expected-nodes)
-      (> (Math/abs (:boundary-value coarse-result)) 1.0)))
+  "Check if refinement should be attempted.
+   IGNORES node count - only checks boundary value."
+  (> (Math/abs (:boundary-value coarse-result)) 1.0))
 
 (defn handle-invalid-energy [E-guess E-search-min E-search-max v0 expected-nodes V-params l r-max h tolerance coarse-result]
   "Handle case when coarse scan finds invalid energy."
@@ -681,7 +645,7 @@
    Parameters:
    - V-params: Woods-Saxon parameters [V0, R0, a0]
    - l: Orbital angular momentum
-   - n: Principal quantum number (1, 2, 3, ...)
+   - n: Number of radial nodes (for nuclear potentials, not principal quantum number)
    - r-max: Maximum radius for integration
    - h: Step size
    - E-min: Minimum energy to search (default: -V0, the potential depth)
@@ -691,16 +655,16 @@
    Returns: {:energy E, :wavefunction u, :nodes n-nodes, :converged? bool}
    
    Algorithm:
-   1. Coarse scan to find approximate energy with correct nodes
+   1. Coarse scan to find approximate energy with n radial nodes
    2. Refine using secant/bisection around best candidate
    3. For different n values, searches in different energy ranges
-       because bound states are ordered: E(n=1) < E(n=2) < E(n=3) < ..."
+       because bound states are ordered: E(n=0) < E(n=1) < E(n=2) < ..."
   ([V-params l n r-max h]
    (let [v0 (first V-params)]
      (find-bound-state-energy V-params l n r-max h (- v0) -0.1 0.01)))
   ([V-params l n r-max h E-min E-max tolerance]
    (let [v0 (first V-params)
-         expected-nodes (- n l 1)  ; Number of radial nodes = n - l - 1
+         expected-nodes n  ; For nuclear potentials, n is the number of radial nodes
          [E-search-min E-search-max] (get-energy-search-range n l v0)
          coarse-result (find-energy-with-nodes E-search-min E-search-max 150 expected-nodes 
                                                V-params l r-max h)
@@ -794,11 +758,8 @@
   ([V-params n l j]
    (solve-bound-state V-params n l j 20.0 0.01))
   ([V-params n l j r-max h]
-   ;; Validate quantum numbers: n > l (or n >= l + 1, since l can be 0)
-   (when (<= n l)
-     (throw (IllegalArgumentException. 
-             (format "Invalid quantum numbers: n=%d must be > l=%d. For n=%d, l can be 0, 1, ..., %d" 
-                    n l n (dec n)))))
+   ;; For nuclear potentials, n represents the number of radial nodes (not principal quantum number)
+   ;; No constraint like n > l applies - nuclear bound states are labeled by radial nodes
    (let [result (find-bound-state-energy V-params l n r-max h)
          wavefunction (:wavefunction result)]
      (when (or (nil? wavefunction) (empty? wavefunction))

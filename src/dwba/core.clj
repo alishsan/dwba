@@ -37,7 +37,7 @@
 (def phase-E1-data (->> Es
                         (mapv (fn[p] [ p (phase-shift p ws-stand 1)]))))
 
-;; Plotting functions removed - using matplotlib instead
+; incanter plotting
 
 
 
