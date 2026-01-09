@@ -524,7 +524,7 @@ rho (* k a) ]
    Uses the recurrence relation: k_l'(x) = -(l/x) * k_l(x) - k_{l+1}(x)"
   (if (zero? x)
     Double/POSITIVE_INFINITY
-    (- (- (* (/ l x) (k-l l x)) (k-l (inc l) x)))))
+    (- (* (/ l x) (k-l l x)) (k-l (inc l) x))))
 
 (defn j-ratio [l x]
   "Ratio j_{l-1}(x) / j_l(x) for spherical Bessel functions."
@@ -560,13 +560,16 @@ rho (* k a) ]
    The sign convention: we want left - right = 0, so error = left + right (since right has negative sign)."
   (if (zero? l)
     ;; For l=0, j_{-1} doesn't exist, so use direct derivative form
-    ;; j_0'(xi)/j_0(xi) = k_0'(eta)/k_0(eta)
+    ;; At the same physical radius r=a, we need to match:
+    ;; k * j_0'(xi)/j_0(xi) = kappa * k_0'(eta)/k_0(eta)
+    ;; Since xi = k*a and eta = kappa*a, this becomes:
+    ;; xi * j_0'(xi)/j_0(xi) = eta * k_0'(eta)/k_0(eta)
     (let [j0-xi (j-l 0 xi)
           j0-prime-xi (j-l-deriv 0 xi)
           k0-eta (k-l 0 eta)
           k0-prime-eta (k-l-deriv 0 eta)
-          log-deriv-inside (/ j0-prime-xi j0-xi)
-          log-deriv-outside (/ k0-prime-eta k0-eta)]
+          log-deriv-inside (* xi (/ j0-prime-xi j0-xi))  ; xi * j_0'(xi)/j_0(xi)
+          log-deriv-outside (* eta (/ k0-prime-eta k0-eta))]  ; eta * k_0'(eta)/k_0(eta)
       (- log-deriv-inside log-deriv-outside))
     ;; For l > 0, use recurrence relation form
     (let [left (* xi (j-ratio l xi))
@@ -698,24 +701,63 @@ rho (* k a) ]
    Uses Newton-Raphson method with analytical derivatives."
   (let [eta (* z0 (m/sqrt e-ratio))
         xi (* z0 (m/sqrt (- 1 e-ratio)))
-        ;; Function values
+        ;; Use finite-well-matching-error for consistency
+        f-val (finite-well-matching-error xi eta l)
+        ;; For derivative calculation, we need the intermediate values
+        ;; For l=0: j-ratio = j_0'/j_0, for l>0: j-ratio = j_{l-1}/j_l
         left-val (* xi (j-ratio l xi))
-        right-val (* (- eta) (k-ratio l eta))
-        f-val (- left-val right-val)
+        right-val (* eta (k-ratio l eta))
         ;; Raw derivatives w.r.t xi and eta
-        ;; d/dxi [xi * j_ratio] = 1 + xi * d(j_ratio)/dxi
-        ;; Using recurrence: d(j_{l-1}/j_l)/dxi = (2l-1)/xi * (j_{l-1}/j_l) - (j_{l-1}/j_l)^2
-        j-rat (j-ratio l xi)
-        k-rat (k-ratio l eta)
-        d-left-dxi (+ 1 (* (- (/ (dec (* 2 l)) xi)) left-val) (* left-val left-val))
-        ;; d/deta [-eta * k_ratio] = -1 - eta * d(k_ratio)/deta
-        ;; Similar recurrence for k_ratio
-        d-right-deta (- (+ 1 (* (/ (dec (* 2 l)) eta) (- right-val)) (* right-val right-val)))
+        ;; For l=0: j-ratio = j_0'/j_0, so left-val = xi * j_0'/j_0
+        ;; For l>0: j-ratio = j_{l-1}/j_l, so left-val = xi * j_{l-1}/j_l
+        [d-left-dxi d-right-deta]
+        (if (zero? l)
+          ;; For l=0: left-val = xi * j_0'/j_0, where j_0' = -j_1
+          ;; d/dxi [xi * j_0'/j_0] = j_0'/j_0 + xi * d/dxi[j_0'/j_0]
+          ;; Using j_0' = -j_1, we have j_0'/j_0 = -j_1/j_0
+          ;; d/dxi[-j_1/j_0] = [-(j_1'*j_0 - j_1*j_0')] / j_0^2
+          ;; Using j_1' = j_0/x - j_1 and j_0' = -j_1:
+          ;; = [-(j_0/x - j_1)*j_0 - j_1*(-j_1)] / j_0^2
+          ;; = [-(j_0^2/x - j_1*j_0) + j_1^2] / j_0^2
+          ;; = -j_0/(x*j_0) + j_1/j_0 + j_1^2/j_0^2 = -1/x + j_1/j_0 + (j_1/j_0)^2
+          (let [j0-xi (j-l 0 xi)
+                j0-prime-xi (j-l-deriv 0 xi)  ; = -j_1
+                j1-xi (j-l 1 xi)
+                j-ratio-val (/ j0-prime-xi j0-xi)  ; = -j_1/j_0
+                j1-over-j0 (/ j1-xi j0-xi)
+                d-j-ratio-dxi (+ (- (/ 1.0 xi)) j1-over-j0 (* j1-over-j0 j1-over-j0))
+                d-left-dxi-val (+ j-ratio-val (* xi d-j-ratio-dxi))
+                
+                ;; For k_0: k_0' = -k_1 (from k-l-deriv)
+                k0-eta (k-l 0 eta)
+                k0-prime-eta (k-l-deriv 0 eta)  ; = -k_1
+                k1-eta (k-l 1 eta)
+                k-ratio-val (/ k0-prime-eta k0-eta)  ; = -k_1/k_0
+                ;; d/deta[k_0'/k_0] = d/deta[-k_1/k_0]
+                ;; k_1' = -k_0/eta - k_1 (from k-l-deriv for l=1)
+                ;; d/deta[-k_1/k_0] = [-(k_1'*k_0 - k_1*k_0')] / k_0^2
+                ;; = [-(-k_0/eta - k_1)*k_0 - k_1*(-k_1)] / k_0^2
+                ;; = [(k_0^2/eta + k_1*k_0) + k_1^2] / k_0^2
+                ;; = k_0/(eta*k_0) + k_1/k_0 + (k_1/k_0)^2 = 1/eta + k_1/k_0 + (k_1/k_0)^2
+                k1-over-k0 (/ k1-eta k0-eta)
+                d-k-ratio-deta (+ (/ 1.0 eta) k1-over-k0 (* k1-over-k0 k1-over-k0))
+                ;; For f = xi * j_0'/j_0 - eta * k_0'/k_0
+                ;; d/deta[f] = -d/deta[eta * k_0'/k_0] = -[k_0'/k_0 + eta * d/deta[k_0'/k_0]]
+                d-right-deta-val (- (+ k-ratio-val (* eta d-k-ratio-deta)))]
+            [d-left-dxi-val d-right-deta-val])
+          ;; For l>0: use recurrence relation
+          (let [d-left-dxi-val (+ 1 (* (- (/ (dec (* 2 l)) xi)) left-val) (* left-val left-val))
+                d-right-deta-val (- (+ 1 (* (/ (dec (* 2 l)) eta) (- right-val)) (* right-val right-val)))]
+            [d-left-dxi-val d-right-deta-val]))
         ;; Chain rule: d/de-ratio = (d/dxi * dxi/de) + (d/deta * deta/de)
         ;; dxi/de = -z0 / (2 * sqrt(1-e)), deta/de = z0 / (2 * sqrt(e))
         dxi-de (/ (- z0) (* 2.0 (m/sqrt (- 1.0 e-ratio))))
         deta-de (/ z0 (* 2.0 (m/sqrt e-ratio)))
-        f-prime (+ (* d-left-dxi dxi-de) (* (- d-right-deta) deta-de))]
+        ;; For l=0: f = xi*j_0'/j_0 - eta*k_0'/k_0, so d/deta has negative sign
+        ;; For l>0: f = xi*j_{l-1}/j_l + eta*k_{l-1}/k_l, so d/deta has positive sign
+        f-prime (if (zero? l)
+                  (+ (* d-left-dxi dxi-de) (* d-right-deta deta-de))  ; d-right-deta already has negative sign
+                  (+ (* d-left-dxi dxi-de) (* (- d-right-deta) deta-de)))]  ; need to negate for l>0
     {:f f-val :f-prime f-prime}))
 
 (defn find-bound-state-finite-well [l z0]
@@ -726,41 +768,72 @@ rho (* k a) ]
    - z0: Dimensionless well depth parameter z0 = a * sqrt(2mV0)/hbar
          where a is the well radius and V0 is the well depth
    
-   Returns: {:e-ratio, :xi, :eta, :energy, :converged?, :iterations}
-   - e-ratio: |E|/V0 (dimensionless energy, 0 < e-ratio < 1)
+   Returns: {:e-ratio, :xi, :eta, :energy, :converged?, :matching-error, :iterations}
+   - e-ratio: |E|/V0 (dimensionless energy ratio, 0 < e-ratio < 1)
+     NOTE: The actual bound state energy is E = -V0 * e-ratio (negative)
    - xi: ka = z0 * sqrt(1 - e_ratio) (dimensionless wave number inside well)
    - eta: kappa*a = z0 * sqrt(e_ratio) (dimensionless decay parameter outside well)
-   - energy: e-ratio (same as e-ratio, for convenience)
-   - converged?: Whether Newton-Raphson converged
+   - energy: e-ratio (same as e-ratio, for convenience - this is the RATIO, not the physical energy)
+   - converged?: Whether Newton-Raphson converged AND matching error is small
+   - matching-error: The error in the matching condition (should be ~0 for a true bound state)
    - iterations: Number of iterations used
    
    The relationship between xi and eta is: xi^2 + eta^2 = z0^2
    This comes from: k^2 = 2m(E+V0)/hbar^2 and kappa^2 = 2m|E|/hbar^2
    so: (ka)^2 + (kappa*a)^2 = (2mV0/hbar^2) * a^2 = z0^2
    
-   Uses Newton-Raphson method with analytical derivatives for faster convergence."
-  (let [initial-guess 0.5  ; Start in middle of range [0, 1]
-        tolerance 1e-9
-        max-iters 20]
-    (loop [e-ratio initial-guess
-           iters 0]
-      (let [{:keys [f f-prime]} (solver-step l z0 e-ratio)
-            next-e (- e-ratio (/ f f-prime))
-            ;; Clamp to valid range [0.001, 0.999] to avoid numerical issues
-            next-e (max 0.001 (min 0.999 next-e))
-            converged? (< (m/abs (- next-e e-ratio)) tolerance)]
-        (if (or (>= iters max-iters) converged?)
-          (let [xi (* z0 (m/sqrt (- 1 next-e)))
-                eta (* z0 (m/sqrt next-e))
-                final-error (finite-well-matching-error xi eta l)]
-            {:e-ratio next-e
-             :xi xi
-             :eta eta
-             :energy next-e
-             :converged? (and converged? (< (m/abs final-error) 1e-6))
-             :matching-error final-error
-             :iterations iters})
-          (recur next-e (inc iters)))))))
+   Uses Newton-Raphson method with analytical derivatives for faster convergence.
+   NOTE: This finds ONE bound state. For multiple bound states, scan the energy range
+   or use find-all-bound-states."
+  (let [tolerance 1e-9
+        max-iters 50  ; Increased iterations
+        ;; For z0 > π/2, bound states exist. Use a better initial guess.
+        ;; For shallow wells, bound states are near the bottom (e-ratio close to 1)
+        ;; For deep wells, bound states can be anywhere
+        initial-guess (if (> z0 Math/PI)
+                        0.5  ; Deep well - start in middle
+                        0.8)  ; Shallow well - start closer to bottom
+        result (loop [e-ratio initial-guess
+                      iters 0
+                      prev-f-val nil]
+                 (let [{:keys [f f-prime]} (solver-step l z0 e-ratio)
+                       ;; Check if we're making progress
+                       f-abs (m/abs f)
+                       ;; Avoid division by zero or very small derivatives
+                       next-e (if (or (< (m/abs f-prime) 1e-15)
+                                     (Double/isNaN f-prime)
+                                     (Double/isInfinite f-prime))
+                                ;; If derivative is problematic, use a small step
+                                (let [step-size (min 0.1 (* 0.01 (m/abs f)))]
+                                  (+ e-ratio (* step-size (- (m/signum f)))))
+                                ;; Normal Newton-Raphson step
+                                (let [step (/ f f-prime)
+                                      ;; Limit step size to avoid overshooting
+                                      limited-step (if (> (m/abs step) 0.5)
+                                                     (* 0.5 (m/signum step))
+                                                     step)]
+                                  (- e-ratio limited-step)))
+                       ;; Clamp to valid range
+                       next-e (max 0.001 (min 0.999 next-e))
+                       ;; Check convergence: both position and function value
+                       converged-pos? (< (m/abs (- next-e e-ratio)) tolerance)
+                       converged-func? (< f-abs 1e-6)
+                       converged? (and converged-pos? converged-func?)
+                       ;; Check if we're stuck (not making progress)
+                       stuck? (and prev-f-val (< (m/abs (- f-abs (m/abs prev-f-val))) 1e-12))]
+                   (if (or (>= iters max-iters) converged? stuck?)
+                     (let [xi (* z0 (m/sqrt (- 1 next-e)))
+                           eta (* z0 (m/sqrt next-e))
+                           final-error (finite-well-matching-error xi eta l)]
+                       {:e-ratio next-e
+                        :xi xi
+                        :eta eta
+                        :energy next-e
+                        :converged? (and converged? (< (m/abs final-error) 1e-6))
+                        :matching-error final-error
+                        :iterations iters})
+                     (recur next-e (inc iters) f-abs))))]
+    result))
 
 (defn find-all-bound-states [l z0]
   "Finds all bound states for a given l and z0.
