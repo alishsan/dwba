@@ -490,7 +490,12 @@ rho (* k a) ]
 ;; These functions have been moved to dwba.finite-well namespace.
 ;; They are re-exported here for backward compatibility.
 
-(defn bisection [f low high tolerance max-iters]
+(defn bisection
+
+  ([f [low high]]
+(bisection f [low high] 1.e20 100)
+   )
+  ([f [low high] tolerance max-iters]
   "Generic bisection root-finding algorithm.
    
    Parameters:
@@ -529,7 +534,7 @@ rho (* k a) ]
                 f-low (f low)]
             (if (= (m/signum f-low) (m/signum f-mid))
               (recur mid high (inc iter))
-              (recur low mid (inc iter)))))))))
+              (recur low mid (inc iter))))))))))
 
 (defn secant [f x0 x1 tolerance max-iters]
   "Secant method for root finding.

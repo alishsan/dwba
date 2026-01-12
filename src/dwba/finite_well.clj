@@ -343,6 +343,178 @@
     ;; For l>0, return empty (use numerical detection)
     []))
 
+(defn scan-energy-range-dimensionless [l z0 step-size]
+  "Scans the energy range and returns function values.
+   
+   Returns: Vector of {:e-ratio, :f} for each valid point."
+  (let [test-points (range 0.01 0.99 step-size)]
+    (->> test-points
+         (map (fn [e-ratio]
+                (let [{:keys [f]} (solver-step e-ratio l z0)]
+                  (when (not (Double/isNaN f))
+                    {:e-ratio e-ratio :f f}))))
+         (filter some?)
+         (vec))))
+
+(defn find-numerical-discontinuities [results]
+  "Finds numerical discontinuities (large jumps) in the function values.
+   
+   Returns: Vector of e-ratio values where discontinuities occur."
+  (->> (partition 2 1 results)
+       (keep (fn [[curr next]]
+               (when (and curr next)
+                 (let [jump-size (m/abs (- (:f next) (:f curr)))]
+                   (when (> jump-size 1000.0)
+                     (/ (+ (:e-ratio curr) (:e-ratio next)) 2.0))))))
+       (vec)))
+
+(defn find-sign-change-candidates [results all-disc-e-ratios]
+  "Finds sign change candidates, excluding those near discontinuities.
+   
+   Returns: Vector of {:e1, :e2, :f1, :f2} for each sign change."
+  (->> (partition 2 1 results)
+       (keep (fn [[curr next]]
+               (when (and curr next)
+                 (let [f1 (:f curr)
+                       f2 (:f next)
+                       s1 (m/signum f1)
+                       s2 (m/signum f2)
+                       e1 (:e-ratio curr)
+                       e2 (:e-ratio next)
+                       e-mid (/ (+ e1 e2) 2.0)
+                       near-disc? (some (fn [disc-e]
+                                          (< (m/abs (- e-mid disc-e)) 0.01))
+                                        all-disc-e-ratios)
+                       is-sign-change? (and (not (zero? s1))
+                                            (not (zero? s2))
+                                            (not= s1 s2)
+                                            (not near-disc?))]
+                   (when is-sign-change?
+                     {:e1 e1 :e2 e2 :f1 f1 :f2 f2})))))
+       (vec)))
+
+(defn find-local-minima-candidates [results]
+  "Finds local minima in |f| as potential roots.
+   
+   Returns: Vector of {:e1, :e2, :f1, :f2} for each local minimum."
+  (->> (partition 3 1 results)
+       (keep (fn [[prev curr next]]
+               (when (and prev curr next)
+                 (let [f-prev (m/abs (:f prev))
+                       f-curr (m/abs (:f curr))
+                       f-next (m/abs (:f next))
+                       is-minimum? (and (< f-curr f-prev)
+                                       (< f-curr f-next)
+                                       (< f-curr 10.0))]
+                   (when is-minimum?
+                     {:e1 (max (:e-ratio prev) 0.01)
+                      :e2 (min (:e-ratio next) 0.99)
+                      :f1 (:f curr)
+                      :f2 (:f curr)})))))
+       (vec)))
+
+(defn refine-root [candidate l z0]
+  "Refines a root candidate using Newton-Raphson method.
+   
+   Parameters:
+   - candidate: {:e1, :e2, :f1, :f2} - bracket for the root
+   - l: Orbital angular momentum quantum number
+   - z0: Dimensionless well depth parameter
+   
+   Returns: Bound state map with {:e-ratio, :xi, :eta, :energy, :converged?, :matching-error, :iterations}"
+  (let [{:keys [e1 e2]} candidate
+        initial-guess (/ (+ e1 e2) 2.0)
+        tolerance 1e-9
+        max-iters 50
+        bracket-low e1
+        bracket-high e2]
+    (loop [e-ratio initial-guess
+           iters 0
+           prev-f-val nil
+           prev-e-ratio nil
+           low bracket-low
+           high bracket-high]
+      (if (>= iters max-iters)
+        (let [xi (* z0 (m/sqrt (- 1 e-ratio)))
+              eta (* z0 (m/sqrt e-ratio))
+              final-error (finite-well-matching-error xi eta l)]
+          {:e-ratio e-ratio
+           :xi xi
+           :eta eta
+           :energy e-ratio
+           :converged? false
+           :matching-error final-error
+           :iterations iters})
+        (let [{:keys [f f-prime]} (solver-step e-ratio l z0)
+              f-valid? (and (not (Double/isNaN f))
+                           (not (Double/isInfinite f))
+                           (not (Double/isNaN f-prime))
+                           (not (Double/isInfinite f-prime)))
+              f-abs (if f-valid? (m/abs f) Double/MAX_VALUE)
+              next-e (if (or (not f-valid?)
+                            (< (m/abs f-prime) 1e-15)
+                            (> f-abs 1e6))
+                      (let [step-size (* 0.5 (m/abs (- high low)))]
+                        (if (> f 0)
+                          (- e-ratio step-size)
+                          (+ e-ratio step-size)))
+                      (let [step (/ f f-prime)
+                            max-step-size (if (< f-abs 1e-3) 0.1 0.5)
+                            limited-step (if (> (m/abs step) max-step-size)
+                                          (* max-step-size (m/signum step))
+                                          step)]
+                        (- e-ratio limited-step)))
+              next-e (max (max 0.01 low) (min 0.99 (min high next-e)))
+              [new-low new-high] (if f-valid?
+                                  (if (> f 0)
+                                    [low e-ratio]
+                                    [e-ratio high])
+                                  [low high])
+              converged-pos? (< (m/abs (- next-e e-ratio)) tolerance)
+              converged-func? (< f-abs 1e-6)
+              converged? (and converged-pos? converged-func?)
+              stuck-func? (and (>= iters 3)
+                              prev-f-val
+                              (< (m/abs (- f-abs (m/abs prev-f-val))) 1e-12))
+              stuck-pos? (and (>= iters 3)
+                            prev-e-ratio
+                            (< (m/abs (- next-e prev-e-ratio)) 1e-12))
+              at-boundary? (or (<= next-e 0.01) (>= next-e 0.99))
+              stuck-at-boundary? (and at-boundary? (> f-abs 0.1))]
+          (if (or converged? stuck-func? stuck-pos? stuck-at-boundary?)
+            (let [xi (* z0 (m/sqrt (- 1 next-e)))
+                  eta (* z0 (m/sqrt e-ratio))
+                  final-error (finite-well-matching-error xi eta l)]
+              {:e-ratio next-e
+               :xi xi
+               :eta eta
+               :energy next-e
+               :converged? (and converged? (< (m/abs final-error) 1e-6))
+               :matching-error final-error
+               :iterations (inc iters)})
+            (recur next-e (inc iters) f-abs e-ratio new-low new-high)))))))
+
+(defn deduplicate-states [states min-separation]
+  "Removes duplicate states that are too close to each other.
+   
+   Parameters:
+   - states: Vector of bound state maps, sorted by e-ratio
+   - min-separation: Minimum e-ratio difference to consider states distinct
+   
+   Returns: Deduplicated vector of states."
+  (loop [remaining states
+         result []]
+    (if (empty? remaining)
+      result
+      (let [current (first remaining)
+            rest-states (rest remaining)
+            too-close? (some (fn [prev-state]
+                              (< (m/abs (- (:e-ratio current) (:e-ratio prev-state))) min-separation))
+                            result)]
+        (if too-close?
+          (recur rest-states result)
+          (recur rest-states (conj result current)))))))
+
 (defn find-all-bound-states [l z0]
   "Finds all bound states for a given l and z0.
    
@@ -356,176 +528,23 @@
    Uses a fine grid scan to find sign changes, then refines each root using Newton-Raphson."
   (let [;; Find analytical discontinuities first
         analytical-discs (find-discontinuities l z0)
-        ;; Fine grid scan to find all sign changes
-        test-points (range 0.01 0.99 0.001)
-        results (->> test-points
-                    (map (fn [e-ratio]
-                           (let [{:keys [f]} (solver-step e-ratio l z0)]
-                             (when (not (Double/isNaN f))
-                               {:e-ratio e-ratio :f f}))))
-                    (filter some?)
-                    (vec))
-        ;; Use analytical discontinuities  
-        analytical-disc-e-ratios analytical-discs
-        ;; Also find numerical discontinuities (large jumps > 1000) for l>0
-        numerical-discs (->> (partition 2 1 results)
-                            (keep (fn [[curr next]]
-                                    (when (and curr next)
-                                      (let [jump-size (m/abs (- (:f next) (:f curr)))]
-                                        (when (> jump-size 1000.0)
-                                          (/ (+ (:e-ratio curr) (:e-ratio next)) 2.0)))))
-                            (vec))
-        ;; Combine analytical and numerical discontinuities
-        all-disc-e-ratios (sort (concat analytical-disc-e-ratios numerical-discs))
-        ;; Find all sign changes, but exclude those near discontinuities
-        sign-changes (->> (partition 2 1 results)
-                         (keep (fn [[curr next]]
-                                 (when (and curr next)
-                                   (let [f1 (:f curr)
-                                         f2 (:f next)
-                                         s1 (m/signum f1)
-                                         s2 (m/signum f2)
-                                         e1 (:e-ratio curr)
-                                         e2 (:e-ratio next)
-                                         e-mid (/ (+ e1 e2) 2.0)
-                                         ;; Check if this sign change is near a discontinuity (within 0.01)
-                                         near-disc? (some (fn [disc-e]
-                                                            (< (m/abs (- e-mid disc-e)) 0.01))
-                                                          all-disc-e-ratios)
-                                         is-sign-change? (and (not (zero? s1))
-                                                             (not (zero? s2))
-                                                             (not= s1 s2)
-                                                             (not near-disc?))]  ; Exclude if near discontinuity
-                                     (when is-sign-change?
-                                       {:e1 e1
-                                        :e2 e2
-                                        :f1 f1
-                                        :f2 f2})))))
-                         (vec))
-        ;; Also find local minima in |f| as potential roots (for cases where there's no sign change)
-        ;; A local minimum is where |f| decreases then increases
-        local-minima (->> (partition 3 1 results)
-                         (keep (fn [[prev curr next]]
-                                 (when (and prev curr next)
-                                   (let [f-prev (m/abs (:f prev))
-                                         f-curr (m/abs (:f curr))
-                                         f-next (m/abs (:f next))
-                                         is-minimum? (and (< f-curr f-prev)
-                                                         (< f-curr f-next)
-                                                         (< f-curr 10.0))]  ; Only consider if |f| is reasonably small
-                                     (when is-minimum?
-                                       {:e1 (max (:e-ratio prev) 0.01)
-                                        :e2 (min (:e-ratio next) 0.99)
-                                        :f1 (:f curr)
-                                        :f2 (:f curr)})))))
-                         (vec))
-        ;; Combine sign changes and local minima
+        ;; Scan energy range
+        results (scan-energy-range-dimensionless l z0 0.001)
+        ;; Find numerical discontinuities
+        numerical-discs (find-numerical-discontinuities results)
+        ;; Combine all discontinuities
+        all-disc-e-ratios (sort (concat analytical-discs numerical-discs))
+        ;; Find sign change candidates
+        sign-changes (find-sign-change-candidates results all-disc-e-ratios)
+        ;; Find local minima candidates
+        local-minima (find-local-minima-candidates results)
+        ;; Combine all candidates
         all-candidates (concat sign-changes local-minima)
-        ;; For each candidate (sign change or local minimum), use Newton-Raphson to find the exact root
-        bound-states (mapv (fn [candidate]
-                            (let [e1 (:e1 candidate)
-                                  e2 (:e2 candidate)
-                                  f1 (:f1 candidate)
-                                  f2 (:f2 candidate)
-                                  ;; Use midpoint as initial guess
-                                  ;; We've already filtered out sign changes near discontinuities
-                                  initial-guess (/ (+ e1 e2) 2.0)
-                                  tolerance 1e-9
-                                  max-iters 50
-                                  ;; Keep track of bracket for bisection fallback
-                                  bracket-low e1
-                                  bracket-high e2
-                                  result (loop [e-ratio initial-guess
-                                               iters 0
-                                               prev-f-val nil
-                                               prev-e-ratio nil
-                                               low bracket-low
-                                               high bracket-high]
-                                          (if (>= iters max-iters)
-                                            (let [xi (* z0 (m/sqrt (- 1 e-ratio)))
-                                                  eta (* z0 (m/sqrt e-ratio))
-                                                  final-error (finite-well-matching-error xi eta l)]
-                                              {:e-ratio e-ratio
-                                               :xi xi
-                                               :eta eta
-                                               :energy e-ratio
-                                               :converged? false
-                                               :matching-error final-error
-                                               :iterations iters})
-                                            (let [{:keys [f f-prime]} (solver-step e-ratio l z0)
-                                                  ;; Check for NaN/Inf which indicates discontinuity
-                                                  f-valid? (and (not (Double/isNaN f))
-                                                               (not (Double/isInfinite f))
-                                                               (not (Double/isNaN f-prime))
-                                                               (not (Double/isInfinite f-prime)))
-                                                  f-abs (if f-valid? (m/abs f) Double/MAX_VALUE)
-                                                  ;; If we hit a discontinuity, use bisection instead
-                                                  next-e (if (or (not f-valid?)
-                                                                (< (m/abs f-prime) 1e-15)
-                                                                (> f-abs 1e6))  ; Very large function value
-                                                          ;; Use bisection step when near discontinuity
-                                                          (let [step-size (* 0.5 (m/abs (- high low)))]
-                                                            (if (> f 0)
-                                                              (- e-ratio step-size)  ; Move toward negative f
-                                                              (+ e-ratio step-size)))  ; Move toward positive f
-                                                          ;; Normal Newton-Raphson step
-                                                          (let [step (/ f f-prime)
-                                                                max-step-size (if (< f-abs 1e-3) 0.1 0.5)
-                                                                limited-step (if (> (m/abs step) max-step-size)
-                                                                              (* max-step-size (m/signum step))
-                                                                              step)]
-                                                            (- e-ratio limited-step)))
-                                                  next-e (max (max 0.01 low) (min 0.99 (min high next-e)))  ; Keep within bracket
-                                                  ;; Update bracket if we're making progress
-                                                  [new-low new-high] (if f-valid?
-                                                                      (if (> f 0)
-                                                                        [low e-ratio]  ; f is positive, root is to the left
-                                                                        [e-ratio high])  ; f is negative, root is to the right
-                                                                      [low high])  ; Keep bracket if invalid
-                                                  converged-pos? (< (m/abs (- next-e e-ratio)) tolerance)
-                                                  converged-func? (< f-abs 1e-6)
-                                                  converged? (and converged-pos? converged-func?)
-                                                  ;; Don't mark as stuck too early - need at least 3 iterations
-                                                  stuck-func? (and (>= iters 3)
-                                                                  prev-f-val 
-                                                                  (< (m/abs (- f-abs (m/abs prev-f-val))) 1e-12))
-                                                  stuck-pos? (and (>= iters 3)
-                                                                 prev-e-ratio 
-                                                                 (< (m/abs (- next-e prev-e-ratio)) 1e-12))
-                                                  at-boundary? (or (<= next-e 0.01) (>= next-e 0.99))
-                                                  stuck-at-boundary? (and at-boundary? (> f-abs 0.1))]
-                                              (if (or converged? stuck-func? stuck-pos? stuck-at-boundary?)
-                                                (let [xi (* z0 (m/sqrt (- 1 next-e)))
-                                                      eta (* z0 (m/sqrt next-e))
-                                                      final-error (finite-well-matching-error xi eta l)]
-                                                  {:e-ratio next-e
-                                                   :xi xi
-                                                   :eta eta
-                                                   :energy next-e
-                                                   :converged? (and converged? (< (m/abs final-error) 1e-6))
-                                                   :matching-error final-error
-                                                   :iterations (inc iters)})
-                                                (recur next-e (inc iters) f-abs e-ratio new-low new-high)))))]
-                              result)
-                          all-candidates)
-        ;; Sort by e-ratio (lowest energy first)
+        ;; Refine each candidate
+        bound-states (mapv #(refine-root % l z0) all-candidates)
+        ;; Sort by e-ratio
         sorted-states (sort-by :e-ratio bound-states)
-        ;; Deduplicate: remove states that are too close to each other (within 1e-6)
-        deduplicated (loop [states sorted-states
-                           result []]
-                      (if (empty? states)
-                        result
-                        (let [current (first states)
-                              remaining (rest states)
-                              ;; Check if current is too close to any in result (within 0.001)
-                              too-close? (some (fn [prev-state]
-                                                (< (m/abs (- (:e-ratio current) (:e-ratio prev-state))) 0.001))
-                                              result)]
-                          (if too-close?
-                            ;; Skip this one, it's a duplicate
-                            (recur remaining result)
-                            ;; Keep this one
-                            (recur remaining (conj result current)))))
-        
-    deduplicated)))]))
+        ;; Deduplicate
+        deduplicated (deduplicate-states sorted-states 0.001)]
+    deduplicated))
 
