@@ -6,6 +6,7 @@
   (:require [fastmath.core :as m]
             [fastmath.special :as spec]
             [functions :refer :all]
+            [dwba.finite-well :refer :all]
             [complex :refer :all]))
 
 ;; ============================================================================
@@ -239,7 +240,7 @@
 
 (defn scan-energy-range
   "Helper function to scan an energy range and compute wavefunctions.
-   Returns a vector of candidate maps with :energy, :wavefunction, :boundary-value, :nodes."
+   Returns a vector of candidate maps with :energy, :boundary-value, :nodes."
   [E-start E-end num-steps V-params l r-max h]
   (let [v0 (first V-params)
         rad (second V-params)
@@ -251,12 +252,41 @@
             u-end (bound-state-boundary-value u r-max h)
             nodes (count-nodes u)]
         {:energy E
-         :wavefunction u
          :boundary-value u-end
          :nodes nodes}))))
 
+(defn find-sign-changes
+  "Find sign changes in boundary values across energy range.
+   Returns candidates where boundary value changes sign (indicates bound state)."
+  [candidates]
+  (filter some?
+    (for [i (range (dec (count candidates)))]
+      (let [curr (nth candidates i)
+            next (nth candidates (inc i))]
+        (when (not= (m/signum (:boundary-value curr))
+                   (m/signum (:boundary-value next)))
+          (if (< (m/abs (:boundary-value curr))
+                (m/abs (:boundary-value next)))
+            curr
+            next))))))
+
+
+(defn find-sign-change-pairs
+  "Find sign changes in boundary values across energy range.
+   Returns a list of vectors, where each vector contains two energies:
+   [E1 E2] where E1 and E2 are the energies on either side of a zero crossing.
+   This indicates a bound state exists between E1 and E2."
+  [candidates]
+  (filter some?
+    (for [i (range (dec (count candidates)))]
+      (let [curr (nth candidates i)
+            next (nth candidates (inc i))]
+        (when (not= (m/signum (:boundary-value curr))
+                   (m/signum (:boundary-value next)))
+          [(:energy curr) (:energy next)])))))
+
 (defn find-energy-with-nodes
-  "Coarse scan to find bound state energy with specific number of nodes.
+  "Coarse scan to find bound state energies with specific number of nodes.
    
    Parameters:
    - E-start, E-end: Energy range to search
@@ -267,69 +297,17 @@
    - r-max: Maximum radius
    - h: Step size
    
-   Returns: {:energy E, :wavefunction u, :boundary-value u-end, :nodes n, :converged? bool}"
+   Returns: List of candidates with {:energy E, :wavefunction u, :boundary-value u-end, :nodes n}"
   [E-start E-end num-steps target-nodes V-params l r-max h]
-  (let [;; Scan all energies in range
-        all-candidates (scan-energy-range E-start E-end num-steps V-params l r-max h)
-        ;; Filter to only negative energies (bound states)
+  (let [all-candidates (scan-energy-range E-start E-end num-steps V-params l r-max h)
         negative-candidates (filter (fn [c] (< (:energy c) -0.01)) all-candidates)
-        ;; Find candidates with exact node count
-        candidates-with-nodes (filter (fn [c] (= (:nodes c) target-nodes)) negative-candidates)
-        ;; Find candidates with small boundary value (< 10.0) - these are likely true bound states
-        candidates-small-boundary (filter (fn [c] (< (Math/abs (:boundary-value c)) 10.0)) negative-candidates)
-        ;; Debug: print summary if no candidates with correct nodes found
-        _ (when (and (zero? target-nodes) (empty? candidates-with-nodes))
-            (println (format "  Debug: No candidates with %d nodes found in range [%.2f, %.2f] MeV"
-                           target-nodes E-start E-end))
-            (println (format "  Debug: Found %d negative candidates, %d with small boundary value"
-                           (count negative-candidates) (count candidates-small-boundary)))
-            (when (seq negative-candidates)
-              (let [node-distribution (frequencies (map :nodes negative-candidates))
-                    best-by-boundary (apply min-key (fn [c] (Math/abs (:boundary-value c))) negative-candidates)]
-                (println (format "  Debug: Node distribution: %s" node-distribution))
-                (println (format "  Debug: Best candidate: E=%.2f MeV, nodes=%d, boundary=%.2e"
-                               (:energy best-by-boundary) (:nodes best-by-boundary)
-                               (:boundary-value best-by-boundary))))))
-        ;; Find sign changes - these indicate where boundary value crosses zero (true bound states)
-        sign-change-candidates (for [i (range (dec (count negative-candidates)))]
-                                (let [curr (nth negative-candidates i)
-                                      next (nth negative-candidates (inc i))]
-                                  (when (not= (Math/signum (:boundary-value curr))
-                                             (Math/signum (:boundary-value next)))
-                                    ;; Return the candidate closer to zero crossing
-                                    (if (< (Math/abs (:boundary-value curr))
-                                          (Math/abs (:boundary-value next)))
-                                      curr
-                                      next))))
-        sign-change-candidates (filter some? sign-change-candidates)
-        
-        ;; Select best candidate IGNORING node count - only look at boundary value:
-        ;; 1. Sign changes - strongest indicator (where boundary crosses zero)
-        ;; 2. Small boundary values - likely true bound states
-        ;; 3. Minimum boundary value overall
-        best (cond
-               ;; Priority 1: Sign changes - these are where boundary value crosses zero
-               (seq sign-change-candidates)
-               (apply min-key (fn [c] (Math/abs (:boundary-value c))) sign-change-candidates)
-               
-               ;; Priority 2: Small boundary values - likely true bound states
-               (seq candidates-small-boundary)
-               (apply min-key (fn [c] (Math/abs (:boundary-value c))) candidates-small-boundary)
-               
-               ;; Priority 3: Minimum boundary value overall
-               (seq negative-candidates)
-               (apply min-key (fn [c] (Math/abs (:boundary-value c))) negative-candidates)
-               
-               ;; Fallback: No valid candidates found
-               :else
-               {:energy -1.0
-                :wavefunction []
-                :boundary-value 1e10
-                :nodes -1
-                :converged? false})]
-    ;; Coarse search just finds candidates - don't check convergence here
-    ;; Convergence is checked after refinement
-    (assoc best :converged? false)))
+        sign-changes (find-sign-changes negative-candidates)
+        candidates-with-nodes (filter (fn [c] (= (:nodes c) target-nodes)) sign-changes)]
+    (if (seq candidates-with-nodes)
+      candidates-with-nodes
+      (filter (fn [c] (= (:nodes c) target-nodes)) negative-candidates))))
+
+
 
 (defn get-refinement-energy-range [E-guess v0 boundary-value]
   "Calculate energy range for refinement search.
@@ -410,9 +388,7 @@
     {:energy E-root
      :wavefunction u-final
      :boundary-value u-final-val
-     :nodes nodes
-     :converged? (and (= nodes target-nodes)
-                     (< (Math/abs u-final-val) 10.0))}))  ; Increased from 0.1 to 10.0
+     :nodes nodes}))
 
 (defn refine-with-secant [f E-guess E-lo E-hi u-lo-val u-mid-val u-hi-val v0 tolerance target-nodes V-params l r-max h]
   "Try to refine using secant method.
@@ -422,9 +398,11 @@
   (let [E-secant-0 (if (< (Math/abs u-mid-val) (Math/abs u-lo-val)) E-guess E-lo)
         E-secant-1 (if (< (Math/abs u-hi-val) (Math/abs u-mid-val)) E-hi E-guess)
         secant-result (secant f E-secant-0 E-secant-1 tolerance 50)
-        E-secant-root (when (:converged? secant-result)
+        ;; Check precision: |value| < tolerance
+        secant-precise? (< (Math/abs (:value secant-result)) tolerance)
+        E-secant-root (when secant-precise?
                        (validate-secant-root (:root secant-result) E-guess E-lo E-hi v0))
-        result (when (and (:converged? secant-result) E-secant-root)
+        result (when (and secant-precise? E-secant-root)
                  (create-refined-result E-secant-root target-nodes V-params l r-max h))]
     ;; Return result if boundary value is reasonable (ignore node count)
     (when (and result (< (Math/abs (:boundary-value result)) 1e6))
@@ -438,7 +416,9 @@
   (let [sign-change-range (find-sign-change-range f E-lo E-hi 20)
         [E-bisect-lo E-bisect-hi] (or sign-change-range [E-lo E-hi])
         bisection-result (bisection f E-bisect-lo E-bisect-hi tolerance 100)
-        result (when (:converged? bisection-result)
+        ;; Check precision: |value| < tolerance
+        bisection-precise? (< (Math/abs (:value bisection-result)) tolerance)
+        result (when bisection-precise?
                  (create-refined-result (:root bisection-result) target-nodes V-params l r-max h))]
     ;; Return result if boundary value is reasonable (ignore node count)
     (when (and result (< (Math/abs (:boundary-value result)) 1e6))
@@ -470,8 +450,7 @@
       {:energy (:energy best)
        :wavefunction (:wavefunction best)
        :boundary-value (:boundary-value best)
-       :nodes (:nodes best)
-       :converged? (< (Math/abs (:boundary-value best)) 10.0)})))
+       :nodes (:nodes best)})))
 
 (defn has-sign-change? [u-lo-val u-mid-val u-hi-val]
   "Check if boundary values have opposite signs."
@@ -491,7 +470,8 @@
    - h: Step size
    - tolerance: Energy convergence tolerance
    
-   Returns: {:energy E, :wavefunction u, :boundary-value u-end, :nodes n, :converged? bool}
+   Returns: {:energy E, :wavefunction u, :boundary-value u-end, :nodes n}
+   Check precision using |boundary-value| < tolerance
    or nil if no valid refinement found with correct node count.
    
    Uses secant method first (faster for smooth functions), falls back to bisection
@@ -558,9 +538,10 @@
         base-E-wide-max (- (* v0 0.1))
         l-adjustment (* l v0 0.05)  ; Same adjustment as in get-energy-search-range
         E-wide-max (min (+ base-E-wide-max l-adjustment) -0.1)
-        wide-result (find-energy-with-nodes E-wide-min E-wide-max 200 expected-nodes 
-                                            V-params l r-max h)]
-    (if (< (:energy wide-result) -0.01)
+        wide-candidates (find-energy-with-nodes E-wide-min E-wide-max 200 expected-nodes 
+                                                V-params l r-max h)
+        wide-result (first wide-candidates)]
+    (if (and wide-result (< (:energy wide-result) -0.01))
       ;; Only refine if boundary value is reasonable (not huge) - IGNORE node count
       (let [refined (refine-bound-state-energy (:energy wide-result) expected-nodes V-params l r-max h tolerance)]
         ;; Only return if refined result has reasonable boundary value
@@ -652,7 +633,8 @@
    - E-max: Maximum energy to search (default: -0.1 MeV, just below zero)
    - tolerance: Energy convergence tolerance (default: 0.01 MeV)
    
-   Returns: {:energy E, :wavefunction u, :nodes n-nodes, :converged? bool}
+   Returns: {:energy E, :wavefunction u, :nodes n-nodes, :boundary-value u-end}
+   Check precision using |boundary-value| < tolerance
    
    Algorithm:
    1. Coarse scan to find approximate energy with n radial nodes
@@ -666,23 +648,85 @@
    (let [v0 (first V-params)
          expected-nodes n  ; For nuclear potentials, n is the number of radial nodes
          [E-search-min E-search-max] (get-energy-search-range n l v0)
-         coarse-result (find-energy-with-nodes E-search-min E-search-max 150 expected-nodes 
-                                               V-params l r-max h)
-         E-guess (:energy coarse-result)
-         coarse-boundary (Math/abs (:boundary-value coarse-result))
-         E-guess-valid (valid-energy? E-guess E-search-min E-search-max)
+         coarse-candidates (find-energy-with-nodes E-search-min E-search-max 150 expected-nodes V-params l r-max h)
+         coarse-result (first coarse-candidates)
+         E-guess (when coarse-result (:energy coarse-result))
+         coarse-boundary (when coarse-result (Math/abs (:boundary-value coarse-result)))
+         E-guess-valid (and E-guess (valid-energy? E-guess E-search-min E-search-max))
          ;; Check if energy is at boundary of search range (might need wider search)
-         at-boundary (or (< (Math/abs (- E-guess E-search-min)) 0.1)
-                        (< (Math/abs (- E-guess E-search-max)) 0.1))
-         ;; If boundary value is huge, it's definitely not a bound state
-         huge-boundary (> coarse-boundary 1e10)]
-     (cond
-       (not E-guess-valid)
+         at-boundary (and E-guess (or (< (Math/abs (- E-guess E-search-min)) 0.1)
+                                     (< (Math/abs (- E-guess E-search-max)) 0.1)))]
+    (cond
+      (nil? coarse-result)
+      nil
+      
+      (not E-guess-valid)
        (handle-invalid-energy E-guess E-search-min E-search-max v0 expected-nodes 
                              V-params l r-max h tolerance coarse-result)
        
-       ;; If at boundary or huge boundary value, try wider search first
-       (or at-boundary huge-boundary)
+       ;; If at boundary, try wider search first
+       at-boundary
+       (if-let [wide-result (try-wider-search v0 expected-nodes V-params l r-max h tolerance)]
+         wide-result
+         ;; If wider search fails, still try refinement
+         (if (should-refine? coarse-result expected-nodes)
+           (try-refinement-with-wide-search E-guess expected-nodes coarse-result coarse-boundary
+                                            E-search-min E-search-max v0 V-params l r-max h tolerance)
+           coarse-result))
+       
+       (should-refine? coarse-result expected-nodes)
+       (try-refinement-with-wide-search E-guess expected-nodes coarse-result coarse-boundary
+                                        E-search-min E-search-max v0 V-params l r-max h tolerance)
+       
+       :else
+       (handle-wrong-nodes v0 expected-nodes V-params l r-max h tolerance coarse-result)))))
+
+(defn find-bound-state-energy-too-much
+  "Find bound state energy using shooting method.
+   
+   Parameters:
+   - V-params: Woods-Saxon parameters [V0, R0, a0]
+   - l: Orbital angular momentum
+   - n: Number of radial nodes (for nuclear potentials, not principal quantum number)
+   - r-max: Maximum radius for integration
+   - h: Step size
+   - E-min: Minimum energy to search (default: -V0, the potential depth)
+   - E-max: Maximum energy to search (default: -0.1 MeV, just below zero)
+   - tolerance: Energy convergence tolerance (default: 0.01 MeV)
+   
+   Returns: {:energy E, :wavefunction u, :nodes n-nodes, :boundary-value u-end}
+   Check precision using |boundary-value| < tolerance
+   
+   Algorithm:
+   1. Coarse scan to find approximate energy with n radial nodes
+   2. Refine using secant/bisection around best candidate
+   3. For different n values, searches in different energy ranges
+       because bound states are ordered: E(n=0) < E(n=1) < E(n=2) < ..."
+  ([V-params l n r-max h]
+   (let [v0 (first V-params)]
+     (find-bound-state-energy V-params l n r-max h (- v0) -0.1 0.01)))
+  ([V-params l n r-max h E-min E-max tolerance]
+   (let [v0 (first V-params)
+         expected-nodes n  ; For nuclear potentials, n is the number of radial nodes
+         [E-search-min E-search-max] (get-energy-search-range n l v0)
+         coarse-candidates (find-energy-with-nodes E-search-min E-search-max 150 expected-nodes V-params l r-max h)
+         coarse-result (first coarse-candidates)
+         E-guess (when coarse-result (:energy coarse-result))
+         coarse-boundary (when coarse-result (Math/abs (:boundary-value coarse-result)))
+         E-guess-valid (and E-guess (valid-energy? E-guess E-search-min E-search-max))
+         ;; Check if energy is at boundary of search range (might need wider search)
+         at-boundary (and E-guess (or (< (Math/abs (- E-guess E-search-min)) 0.1)
+                                     (< (Math/abs (- E-guess E-search-max)) 0.1)))]
+    (cond
+      (nil? coarse-result)
+      nil
+      
+      (not E-guess-valid)
+       (handle-invalid-energy E-guess E-search-min E-search-max v0 expected-nodes 
+                             V-params l r-max h tolerance coarse-result)
+       
+       ;; If at boundary, try wider search first
+       at-boundary
        (if-let [wide-result (try-wider-search v0 expected-nodes V-params l r-max h tolerance)]
          wide-result
          ;; If wider search fails, still try refinement
@@ -772,7 +816,6 @@
         :normalized-wavefunction u-norm
         :nodes (:nodes result)
         :boundary-value (:boundary-value result)
-        :converged? (:converged? result)
         :quantum-numbers {:n n, :l l, :j j}
         :r-max r-max
         :h h}))))
@@ -808,6 +851,7 @@
   (println (format "Energy: %.6f MeV" (:energy result)))
   (println (format "Number of nodes: %d" (:nodes result)))
   (println (format "Boundary value at r_max: %.6e" (:boundary-value result)))
-  (println (format "Converged: %s" (:converged? result)))
+  (let [boundary-precise? (< (Math/abs (:boundary-value result)) 10.0)]
+    (println (format "Precision: |boundary-value| < 10.0: %s" boundary-precise?)))
   (println (format "Wavefunction length: %d points" (count (:normalized-wavefunction result))))
   (println ""))
