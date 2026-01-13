@@ -649,12 +649,13 @@
    (let [v0 (first V-params)
          rad (second V-params)
          diff (last V-params)
-         [E-search-min E-search-max] (get-energy-search-range n l v0)
+         [E-search-min E-search-max] [(- v0) -0.1]
          coarse-candidates (scan-energy-range E-search-min E-search-max 100 V-params l r-max h)
          sign-change-pairs (find-sign-change-pairs coarse-candidates)]
  (map (fn [pair] (bisection (fn [x] (last (solve-bound-state-numerov  x  l v0 rad diff h r-max))) pair))  sign-change-pairs)  
                                     ;    (bisection (fn [x] (last (solve-bound-state-numerov x  l v0 rad diff h r-max))) (first sign-change-pairs))
-     ;(map :boundary-value coarse-candidates)
+                                   ;     (map :boundary-value coarse-candidates)
+; sign-change-pairs
     )))
 
 (defn find-bound-state-energy-too-much
