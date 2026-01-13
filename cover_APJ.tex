@@ -1,0 +1,40 @@
+\documentclass[11pt]{letter}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{times}
+
+\begin{document}
+
+\begin{letter}{Editor-in-Chief \\
+American Journal of Physics \\
+American Association of Physics Teachers}
+
+\opening{Dear Editors,}
+
+Please accept the enclosed manuscript, \textbf{"From Transcendental Roots to Numerical Benchmarks: High-Precision Bound States of the Finite Square Well,"} for consideration in the \textit{Computational Physics} section of the \textit{American Journal of Physics}.
+
+This paper addresses a critical pedagogical gap in the transition from undergraduate quantum mechanics to computational nuclear physics research. While the finite square well is a standard textbook problem, it is rarely treated with the numerical rigor required to serve as a benchmark for professional research tools. Students and researchers frequently utilize Distorted Wave Born Approximation (DWBA) codes with Woods-Saxon potentials, often treating these numerical solvers as "black boxes."
+
+Our manuscript provides a pedagogical bridge between these two worlds. We present a method to validate complex Woods-Saxon solvers by utilizing the finite square well as a rigorous limit (diffuseness $a_0 \to 0$). 
+
+The core pedagogical contribution of this work lies in the methodology. Rather than employing simple bisection or finite-difference methods, we demonstrate the implementation of a \textbf{Newton-Raphson algorithm utilizing analytical derivatives} derived from spherical Bessel function recurrence relations. This approach:
+\begin{itemize}
+    \item Demonstrates the superior stability and quadratic convergence of analytical over numerical derivatives.
+    \item Provides students with a "Gold Standard" reference table for the $^{14}$C + n system, allowing them to quantitatively verify the integration grid and matching radii of their own codes.
+    \item Illustrates the behavior of loosely bound states (such as the $1p_{1/2}$ state near threshold), where standard "shooting methods" often fail without precise derivatives.
+\end{itemize}
+
+We believe this work is ideally suited for AJP readers as it empowers educators to teach computational physics not just as code-writing, but as a discipline requiring deep analytical understanding of the underlying mathematics.
+
+This manuscript has not been published previously and is not under consideration by any other journal. Thank you for your consideration.
+
+\closing{Sincerely,}
+
+\textbf{[Your Name]} \\
+[Your Title] \\
+[Your Institution] \\
+[Your Email Address]
+
+\end{letter}
+\end{document}

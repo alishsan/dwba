@@ -105,7 +105,7 @@
     Double/POSITIVE_INFINITY
     (let [v-eff (+ (woods-saxon-numerov r v0 rad diff)
                    (/ (* l (inc l)) (* mass-factor r r)))]
-      (*  (- v-eff e)))))
+      (* mass-factor (- v-eff e)))))
 
 
 (defn plot-function [f start end step & y];;"plots" function f vs. the first variable
@@ -511,7 +511,8 @@ rho (* k a) ]
    - iterations: Number of iterations used
    - converged?: Whether convergence was achieved"
   (let [f-low (f low)
-        f-high (f high)]
+        f-high (f high)
+precision 0.00001]
     (if (= (m/signum f-low) (m/signum f-high))
       {:root low
        :value f-low
@@ -522,7 +523,7 @@ rho (* k a) ]
              high high
              iter 0]
         (if (or (>= iter max-iters)
-                (< (Math/abs (- high low)) tolerance))
+                (< (Math/abs (- high low)) precision))
           (let [mid (/ (+ low high) 2.0)
                 f-mid (f mid)]
             {:root mid
@@ -564,45 +565,58 @@ rho (* k a) ]
    => Finds root of x² - 4 = 0 (should be x = 2)"
   (let [f-x0 (f x0)
         f-x1 (f x1)]
-    ;; Check if we already have a root
-    (if (< (Math/abs f-x0) tolerance)
+    ;; Check for nil values
+    (if (or (nil? f-x0) (nil? f-x1))
       {:root x0
        :value f-x0
        :iterations 0
-       :converged? true}
-      (if (< (Math/abs f-x1) tolerance)
-        {:root x1
-         :value f-x1
+       :converged? false
+       :error "Function returned nil"}
+      ;; Check if we already have a root
+      (if (< (Math/abs f-x0) tolerance)
+        {:root x0
+         :value f-x0
          :iterations 0
          :converged? true}
-        ;; Check if denominator would be zero (function values are equal)
-        (if (< (Math/abs (- f-x1 f-x0)) 1e-15)
+        (if (< (Math/abs f-x1) tolerance)
           {:root x1
            :value f-x1
            :iterations 0
-           :converged? false
-           :error "Function values at initial guesses are too close"}
-          ;; Iterate using secant method
-          (loop [x-prev x0
-                 x-curr x1
-                 f-prev f-x0
-                 f-curr f-x1
-                 iter 0]
-            (if (or (>= iter max-iters)
-                    (< (Math/abs f-curr) tolerance)
-                    (< (Math/abs (- x-curr x-prev)) tolerance))
-              {:root x-curr
-               :value f-curr
-               :iterations iter
-               :converged? (< (Math/abs f-curr) tolerance)}
-              (let [;; Secant method formula
-                    denominator (- f-curr f-prev)
-                    ;; Avoid division by zero
-                    x-next (if (< (Math/abs denominator) 1e-15)
-                             x-curr  ; If denominator too small, don't update
-                             (- x-curr (* f-curr (/ (- x-curr x-prev) denominator))))
-                    f-next (f x-next)]
-                (recur x-curr x-next f-curr f-next (inc iter))))))))))
+           :converged? true}
+          ;; Check if denominator would be zero (function values are equal)
+          (if (< (Math/abs (- f-x1 f-x0)) 1e-15)
+            {:root x1
+             :value f-x1
+             :iterations 0
+             :converged? false
+             :error "Function values at initial guesses are too close"}
+            ;; Iterate using secant method
+            (loop [x-prev x0
+                   x-curr x1
+                   f-prev f-x0
+                   f-curr f-x1
+                   iter 0]
+              (if (or (>= iter max-iters)
+                      (< (Math/abs f-curr) tolerance)
+                      (< (Math/abs (- x-curr x-prev)) tolerance))
+                {:root x-curr
+                 :value f-curr
+                 :iterations iter
+                 :converged? (< (Math/abs f-curr) tolerance)}
+                (let [;; Secant method formula
+                      denominator (- f-curr f-prev)
+                      ;; Avoid division by zero
+                      x-next (if (< (Math/abs denominator) 1e-15)
+                               x-curr  ; If denominator too small, don't update
+                               (- x-curr (* f-curr (/ (- x-curr x-prev) denominator))))
+                      f-next (f x-next)]
+                  (if (nil? f-next)
+                    {:root x-curr
+                     :value f-curr
+                     :iterations iter
+                     :converged? false
+                     :error "Function returned nil during iteration"}
+                    (recur x-curr x-next f-curr f-next (inc iter))))))))))))
 
 ;; Finite-well functions removed - now in dwba.finite-well namespace
 
