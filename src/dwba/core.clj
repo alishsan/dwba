@@ -11,6 +11,7 @@
 (use 'functions)
 (use 'dwba.finite-well)
 (use 'dwba.transfer)
+(use 'dwba.form-factors)
 
 (def xs (range 1 15 0.1))
 

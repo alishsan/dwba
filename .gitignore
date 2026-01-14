@@ -68,11 +68,24 @@ Thumbs.db
 *.log
 logs/
 
+# LaTeX article files
+*.tex
+*.aux
+*.synctex.gz
+*.out
+*.spl
+*.bib
+*Notes.bib
+
 # Temporary files
 *.tmp
 *.temp
 temp/
 tmp/
+
+# Debug and check files
+debug*.clj
+check*.clj
 
 # Node modules (if any)
 node_modules/

@@ -627,7 +627,6 @@
    Parameters:
    - V-params: Woods-Saxon parameters [V0, R0, a0]
    - l: Orbital angular momentum
-   - n: Number of radial nodes (for nuclear potentials, not principal quantum number)
    - r-max: Maximum radius for integration
    - h: Step size
    - E-min: Minimum energy to search (default: -V0, the potential depth)
@@ -642,10 +641,10 @@
    2. Refine using secant/bisection around best candidate
    3. For different n values, searches in different energy ranges
        because bound states are ordered: E(n=0) < E(n=1) < E(n=2) < ..."
-  ([V-params l n r-max h]
+  ([V-params l r-max h]
    (let [v0 (first V-params)]
-     (find-bound-state-energy V-params l n r-max h (- v0) -0.1 0.01)))
-  ([V-params l n r-max h E-min E-max tolerance]
+     (find-bound-state-energy V-params l r-max h (- v0) -0.1 0.01)))
+  ([V-params l r-max h E-min E-max tolerance]
    (let [v0 (first V-params)
          rad (second V-params)
          diff (last V-params)
@@ -658,66 +657,6 @@
 ; sign-change-pairs
     )))
 
-(defn find-bound-state-energy-too-much
-  "Find bound state energy using shooting method.
-   
-   Parameters:
-   - V-params: Woods-Saxon parameters [V0, R0, a0]
-   - l: Orbital angular momentum
-   - n: Number of radial nodes (for nuclear potentials, not principal quantum number)
-   - r-max: Maximum radius for integration
-   - h: Step size
-   - E-min: Minimum energy to search (default: -V0, the potential depth)
-   - E-max: Maximum energy to search (default: -0.1 MeV, just below zero)
-   - tolerance: Energy convergence tolerance (default: 0.01 MeV)
-   
-   Returns: {:energy E, :wavefunction u, :nodes n-nodes, :boundary-value u-end}
-   Check precision using |boundary-value| < tolerance
-   
-   Algorithm:
-   1. Coarse scan to find approximate energy with n radial nodes
-   2. Refine using secant/bisection around best candidate
-   3. For different n values, searches in different energy ranges
-       because bound states are ordered: E(n=0) < E(n=1) < E(n=2) < ..."
-  ([V-params l n r-max h]
-   (let [v0 (first V-params)]
-     (find-bound-state-energy V-params l n r-max h (- v0) -0.1 0.01)))
-  ([V-params l n r-max h E-min E-max tolerance]
-   (let [v0 (first V-params)
-         expected-nodes n  ; For nuclear potentials, n is the number of radial nodes
-         [E-search-min E-search-max] (get-energy-search-range n l v0)
-         coarse-candidates (find-energy-with-nodes E-search-min E-search-max 150 expected-nodes V-params l r-max h)
-         coarse-result (first coarse-candidates)
-         E-guess (when coarse-result (:energy coarse-result))
-         coarse-boundary (when coarse-result (Math/abs (:boundary-value coarse-result)))
-         E-guess-valid (and E-guess (valid-energy? E-guess E-search-min E-search-max))
-         ;; Check if energy is at boundary of search range (might need wider search)
-         at-boundary (and E-guess (or (< (Math/abs (- E-guess E-search-min)) 0.1)
-                                     (< (Math/abs (- E-guess E-search-max)) 0.1)))]
-    (cond
-      (nil? coarse-result)
-      nil
-      
-      (not E-guess-valid)
-       (handle-invalid-energy E-guess E-search-min E-search-max v0 expected-nodes 
-                             V-params l r-max h tolerance coarse-result)
-       
-       ;; If at boundary, try wider search first
-       at-boundary
-       (if-let [wide-result (try-wider-search v0 expected-nodes V-params l r-max h tolerance)]
-         wide-result
-         ;; If wider search fails, still try refinement
-         (if (should-refine? coarse-result expected-nodes)
-           (try-refinement-with-wide-search E-guess expected-nodes coarse-result coarse-boundary
-                                            E-search-min E-search-max v0 V-params l r-max h tolerance)
-           coarse-result))
-       
-       (should-refine? coarse-result expected-nodes)
-       (try-refinement-with-wide-search E-guess expected-nodes coarse-result coarse-boundary
-                                        E-search-min E-search-max v0 V-params l r-max h tolerance)
-       
-       :else
-       (handle-wrong-nodes v0 expected-nodes V-params l r-max h tolerance coarse-result)))))
 
 (defn normalize-bound-state [u h]
   "Normalize bound state wavefunction so that ∫₀^∞ |u(r)|² dr = 1.
