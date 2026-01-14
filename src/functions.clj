@@ -15,8 +15,10 @@
 (declare f-func f-func-deriv g-func g-func-deriv hankel0+ hankel0- phase-shift0)
 
 (def hbarc 197.7) ;MeV-fm
-;(def mu 745) ;MeV/c^2
-(def mu 869.4) ; 14C+n
+;(def mu 745) ;MeV/c^2; alpha+n
+;(def mu 869.4) ; 14C+n
+;(def mu 884.3); 16O + n
+(def mu 469.46); p+n
 
 (def mass-factor (/ (* 2 mu) hbarc hbarc )); mass-factor * E = k^2
 
@@ -97,7 +99,7 @@
   "Woods-Saxon potential for Numerov method: V(r) = -V0/(1+exp((r-R0)/a0))"
   (/ (- v0) (+ 1.0 (Math/exp (/ (- r rad) diff)))))
 
-(defn f-r-numerov [r e l v0 rad diff]
+(defn f-r-numerov ([r e l v0 rad diff mass-factor];mass-factor is different from the name-space mass factor
   "Effective potential function for Numerov integration"
   (if (zero? r)
     ;; At r=0, centrifugal term dominates: l(l+1)/r^2 -> infinity
@@ -106,6 +108,17 @@
     (let [v-eff (+ (woods-saxon-numerov r v0 rad diff)
                    (/ (* l (inc l)) (* mass-factor r r)))]
       (* mass-factor (- v-eff e)))))
+
+ ([r e l v0 rad diff] ; use the name-space mass-factor
+  "Effective potential function for Numerov integration"
+  (if (zero? r)
+    ;; At r=0, centrifugal term dominates: l(l+1)/r^2 -> infinity
+    ;; But we never actually use r=0 in Numerov (starts at r=h)
+    Double/POSITIVE_INFINITY
+    (let [v-eff (+ (woods-saxon-numerov r v0 rad diff)
+                   (/ (* l (inc l)) (* mass-factor r r)))]
+      (* mass-factor (- v-eff e)))))
+  )
 
 
 (defn plot-function [f start end step & y];;"plots" function f vs. the first variable

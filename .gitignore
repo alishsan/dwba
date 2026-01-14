@@ -87,6 +87,9 @@ tmp/
 debug*.clj
 check*.clj
 
+# Temporary script files
+run_plot.clj
+
 # Node modules (if any)
 node_modules/
 

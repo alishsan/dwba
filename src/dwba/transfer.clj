@@ -117,7 +117,6 @@
    - rad: R0 parameter (nuclear radius) in fm
    - diff: a0 parameter (surface diffuseness) in fm
    - h: Step size in fm
-
    
 
    
@@ -771,3 +770,295 @@
     (println (format "Precision: |boundary-value| < 10.0: %s" boundary-precise?)))
   (println (format "Wavefunction length: %d points" (count (:normalized-wavefunction result))))
   (println ""))
+
+;; ============================================================================
+;; ZERO-RANGE AND FINITE-RANGE INTERACTIONS
+;; ============================================================================
+
+(defn zero-range-constant
+  "Get zero-range constant D₀ for specific reaction type.
+   
+   Parameters:
+   - reaction-type: Keyword indicating reaction type
+     :d-p  - (d,p) reaction (neutron transfer)
+     :d-n  - (d,n) reaction (proton transfer)
+     :p-d  - (p,d) reaction (neutron pickup)
+     :n-d  - (n,d) reaction (proton pickup)
+     :alpha-t - (α,t) reaction (proton transfer)
+     :alpha-he3 - (α,³He) reaction (neutron transfer)
+   
+   Returns: D₀ in MeV·fm^(3/2) (typical units)
+   
+   Typical values:
+   - (d,p): D₀ ≈ -122.4 MeV·fm^(3/2) (for neutron transfer)
+   - (p,d): D₀ ≈ -122.4 MeV·fm^(3/2) (same magnitude, sign depends on convention)
+   - (α,t): D₀ ≈ -400 MeV·fm^(3/2) (approximate, depends on α-t interaction)
+   
+   Note: The sign convention varies in literature. We use the standard convention
+   where D₀ is negative for attractive interactions."
+  [reaction-type]
+  (case reaction-type
+    :d-p -122.4    ; (d,p) neutron transfer
+    :d-n -122.4    ; (d,n) proton transfer
+    :p-d -122.4    ; (p,d) neutron pickup
+    :n-d -122.4    ; (n,d) proton pickup
+    :alpha-t -400.0  ; (α,t) proton transfer (approximate)
+    :alpha-he3 -400.0 ; (α,³He) neutron transfer (approximate)
+    (throw (IllegalArgumentException. 
+            (format "Unknown reaction type: %s. Supported types: :d-p, :d-n, :p-d, :n-d, :alpha-t, :alpha-he3" 
+                   reaction-type)))))
+
+(defn transfer-amplitude-zero-range
+  "Calculate transfer amplitude in zero-range approximation.
+   
+   In zero-range approximation, the transfer interaction is:
+   V_transfer(r) = D₀ δ(r)
+   
+   This simplifies the transfer amplitude to:
+   T = D₀ · ∫ χ*_f(r) φ*_f(r) φ_i(r) χ_i(r) d³r
+   
+   For zero-range, this reduces to evaluating the form factor at r=0:
+   T = D₀ · φ*_f(0) · φ_i(0)
+   
+   However, for l > 0 states, φ(0) = 0, so we need the full overlap integral.
+   The correct zero-range amplitude is:
+   T = D₀ · ∫ φ*_f(r) φ_i(r) r² dr
+   
+   Parameters:
+   - overlap-integral: Overlap integral O = ∫ φ*_f(r) φ_i(r) r² dr
+   - D0: Zero-range constant (from zero-range-constant function)
+   
+   Returns: Transfer amplitude T (complex number, in general)
+   
+   Example:
+   (require '[dwba.form-factors :as ff])
+   (let [overlap (ff/overlap-integral phi-i phi-f r-max h)
+         D0 (zero-range-constant :d-p)]
+     (transfer-amplitude-zero-range overlap D0))"
+  [overlap-integral D0]
+  (* D0 overlap-integral))
+
+(defn yukawa-form-factor
+  "Yukawa form factor for finite-range interaction.
+   
+   The Yukawa form factor is commonly used for finite-range interactions:
+   F_Y(r) = exp(-μr) / (μr)
+   
+   Parameters:
+   - r: Radial distance (fm)
+   - mu: Range parameter (fm⁻¹), typically μ ≈ 0.7 fm⁻¹ for nucleon-nucleon interaction
+   
+   Returns: F_Y(r)
+   
+   Note: For r = 0, F_Y(0) = 1/μ (limit as r → 0)
+   This is the standard form for finite-range transfer interactions."
+  [r mu]
+  (if (zero? r)
+    (/ 1.0 mu)  ; Limit as r → 0: exp(-μr)/(μr) → 1/μ
+    (/ (Math/exp (* (- mu) r)) (* mu r))))
+
+(defn gaussian-form-factor
+  "Gaussian form factor for finite-range interaction.
+   
+   Alternative to Yukawa form factor:
+   F_G(r) = exp(-(r/β)²)
+   
+   Parameters:
+   - r: Radial distance (fm)
+   - beta: Range parameter (fm), typically β ≈ 1.0-1.5 fm
+   
+   Returns: F_G(r)
+   
+   This form is sometimes used for finite-range corrections."
+  [r beta]
+  (Math/exp (- (/ (* r r) (* beta beta)))))
+
+(defn finite-range-interaction
+  "Calculate finite-range interaction potential.
+   
+   The finite-range interaction is:
+   V_transfer(r) = V₀ · F(r)
+   
+   where F(r) is a form factor (Yukawa or Gaussian).
+   
+   Parameters:
+   - r: Radial distance (fm)
+   - V0: Interaction strength (MeV)
+   - form-factor-type: :yukawa or :gaussian
+   - range-param: Range parameter
+     - For Yukawa: μ (fm⁻¹), typically 0.7 fm⁻¹
+     - For Gaussian: β (fm), typically 1.0-1.5 fm
+   
+   Returns: V_transfer(r) in MeV
+   
+   Example:
+   (finite-range-interaction 2.0 50.0 :yukawa 0.7)  ; Yukawa at r=2 fm
+   (finite-range-interaction 2.0 50.0 :gaussian 1.2)  ; Gaussian at r=2 fm"
+  [r V0 form-factor-type range-param]
+  (let [F-r (case form-factor-type
+              :yukawa (yukawa-form-factor r range-param)
+              :gaussian (gaussian-form-factor r range-param)
+              (throw (IllegalArgumentException. 
+                      (format "Unknown form factor type: %s. Use :yukawa or :gaussian" 
+                             form-factor-type))))]
+    (* V0 F-r)))
+
+(defn finite-range-overlap-integral
+  "Calculate overlap integral with finite-range form factor.
+   
+   This is the overlap integral weighted by the finite-range interaction:
+   O_FR = ∫₀^∞ φ*_f(r) φ_i(r) F(r) r² dr
+   
+   where F(r) is the form factor (Yukawa or Gaussian).
+   
+   Parameters:
+   - phi-i: Initial bound state wavefunction (vector)
+   - phi-f: Final bound state wavefunction (vector)
+   - r-max: Maximum radius (fm)
+   - h: Step size (fm)
+   - form-factor-type: :yukawa or :gaussian
+   - range-param: Range parameter (μ for Yukawa, β for Gaussian)
+   
+   Returns: O_FR = ∫ φ*_f(r) φ_i(r) F(r) r² dr
+   
+   Example:
+   (finite-range-overlap-integral phi-i phi-f 20.0 0.01 :yukawa 0.7)"
+  [phi-i phi-f _r-max h form-factor-type range-param]
+  (let [n (min (count phi-i) (count phi-f))
+        integrand (mapv (fn [i]
+                         (let [r (* i h)
+                               phi-i-val (get phi-i i)
+                               phi-f-val (get phi-f i)
+                               phi-f-conj (if (number? phi-f-val)
+                                           phi-f-val
+                                           (complex-from-cartesian (re phi-f-val) (- (im phi-f-val))))
+                               F-r (case form-factor-type
+                                     :yukawa (yukawa-form-factor r range-param)
+                                     :gaussian (gaussian-form-factor r range-param)
+                                     (throw (IllegalArgumentException. 
+                                             (format "Unknown form factor type: %s" form-factor-type))))]
+                           (* phi-f-conj phi-i-val F-r r r)))
+                       (range n))
+        ;; Simpson's rule integration
+        simpson-sum (loop [i 1 sum 0.0]
+                     (if (>= i (dec n))
+                       sum
+                       (let [coeff (if (odd? i) 4.0 2.0)
+                             term (* coeff (get integrand i))]
+                         (recur (inc i) (+ sum term)))))
+        integral (* (/ h 3.0)
+                   (+ (first integrand)
+                      (last integrand)
+                      simpson-sum))]
+    integral))
+
+(defn transfer-amplitude-finite-range
+  "Calculate transfer amplitude with finite-range interaction.
+   
+   Parameters:
+   - finite-range-overlap: Overlap integral with form factor (from finite-range-overlap-integral)
+   - V0: Interaction strength (MeV)
+   
+   Returns: Transfer amplitude T = V₀ · O_FR
+   
+   Example:
+   (let [overlap-fr (finite-range-overlap-integral phi-i phi-f 20.0 0.01 :yukawa 0.7)]
+     (transfer-amplitude-finite-range overlap-fr 50.0))"
+  [finite-range-overlap V0]
+  (* V0 finite-range-overlap))
+
+(defn transfer-amplitude-post
+  "Calculate transfer amplitude in POST formulation.
+   
+   In the post formulation, the interaction is in the exit channel:
+   T_post = <χ_f|V_transfer|χ_i>
+   
+   where:
+   - χ_i: Distorted wave in entrance channel
+   - χ_f: Distorted wave in exit channel
+   - V_transfer: Transfer interaction
+   
+   For zero-range: T_post = D₀ · ∫ χ*_f(r) φ*_f(r) φ_i(r) χ_i(r) d³r
+   
+   For finite-range: T_post = ∫ χ*_f(r) V_transfer(r) φ*_f(r) φ_i(r) χ_i(r) d³r
+   
+   Parameters:
+   - chi-i: Distorted wave in entrance channel (vector)
+   - chi-f: Distorted wave in exit channel (vector)
+   - phi-i: Initial bound state wavefunction (vector)
+   - phi-f: Final bound state wavefunction (vector)
+   - r-max: Maximum radius (fm)
+   - h: Step size (fm)
+   - interaction-type: :zero-range or :finite-range
+   - interaction-params: Parameters for interaction
+     - For zero-range: {:D0 value} or just D0 value
+     - For finite-range: {:V0 value, :form-factor :yukawa/:gaussian, :range-param value}
+   
+   Returns: Transfer amplitude T_post
+   
+   Note: This is a simplified version. Full implementation would require
+   proper integration over all coordinates including angular parts."
+  [chi-i chi-f phi-i phi-f _r-max h interaction-type interaction-params]
+  (let [n (min (count chi-i) (count chi-f) (count phi-i) (count phi-f))
+        integrand (mapv (fn [i]
+                         (let [r (* i h)
+                               chi-i-val (get chi-i i)
+                               chi-f-val (get chi-f i)
+                               phi-i-val (get phi-i i)
+                               phi-f-val (get phi-f i)
+                               chi-f-conj (if (number? chi-f-val)
+                                           chi-f-val
+                                           (complex-from-cartesian (re chi-f-val) (- (im chi-f-val))))
+                               phi-f-conj (if (number? phi-f-val)
+                                           phi-f-val
+                                           (complex-from-cartesian (re phi-f-val) (- (im phi-f-val))))
+                               ;; Transfer interaction
+                               V-transfer (case interaction-type
+                                            :zero-range (let [D0 (if (map? interaction-params)
+                                                                  (:D0 interaction-params)
+                                                                  interaction-params)]
+                                                          ;; Zero-range: V = D₀ δ(r), so at r we use D₀
+                                                          ;; In practice, we integrate the overlap separately
+                                                          D0)
+                                            :finite-range (let [params (if (map? interaction-params)
+                                                                        interaction-params
+                                                                        {:V0 interaction-params})]
+                                                           (finite-range-interaction r 
+                                                                                     (:V0 params)
+                                                                                     (:form-factor params :yukawa)
+                                                                                     (:range-param params 0.7)))
+                                            (throw (IllegalArgumentException. 
+                                                    (format "Unknown interaction type: %s" interaction-type))))]
+                           (* chi-f-conj V-transfer phi-f-conj phi-i-val chi-i-val r r)))
+                       (range n))
+        ;; Simpson's rule integration
+        simpson-sum (loop [i 1 sum 0.0]
+                     (if (>= i (dec n))
+                       sum
+                       (let [coeff (if (odd? i) 4.0 2.0)
+                             term (* coeff (get integrand i))]
+                         (recur (inc i) (+ sum term)))))
+        integral (* (/ h 3.0)
+                   (+ (first integrand)
+                      (last integrand)
+                      simpson-sum))]
+    integral))
+
+(defn transfer-amplitude-prior
+  "Calculate transfer amplitude in PRIOR formulation.
+   
+   In the prior formulation, the interaction is in the entrance channel:
+   T_prior = <χ_f|V_transfer|χ_i>
+   
+   The mathematical form is the same as post, but the physical interpretation
+   is different. For exact calculations, T_post = T_prior (post-prior equivalence).
+   
+   Parameters: Same as transfer-amplitude-post
+   
+   Returns: Transfer amplitude T_prior
+   
+   Note: For testing, you can verify that T_post ≈ T_prior numerically."
+  [chi-i chi-f phi-i phi-f r-max h interaction-type interaction-params]
+  ;; Prior form is mathematically identical to post form
+  ;; The difference is in the physical interpretation of the interaction
+  (transfer-amplitude-post chi-i chi-f phi-i phi-f r-max h interaction-type interaction-params))
