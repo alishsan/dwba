@@ -11,24 +11,29 @@
 ;; ============================================================================
 
 (println "=== Example 1: Zero-Range Approximation ===")
+(def mu-i 884.3)
+(def mu-f 469.46)
+(def m-f-i (/ (m/sqrt (* 2. mu-i))  197.7 ))
+(def m-f-f (/ (m/sqrt (* 2. mu-f))  197.7 ))
 
 ;; Define potential parameters for initial and final states
-(def V-params-i [50.0 2.0 0.6])  ; Initial state: [V0, R0, a0]
-(def V-params-f [60.0 2.5 0.6])  ; Final state: [V0, R0, a0]
-
+(def V-params-i [60.0 2.7 0.6])  ; Initial state: [V0, R0, a0]
+(def V-params-f [50.0 1.66 0.6])  ; Final state: [V0, R0, a0]
+(def energy-i -15.66)
+(def energy-f -2.21)
 ;; Solve for bound states (1s states, l=0)
-(def result-i (t/solve-bound-state V-params-i 1 0 nil 20.0 0.01))
-(def result-f (t/solve-bound-state V-params-f 1 0 nil 20.0 0.01))
+(def result-i (t/solve-bound-state-numerov energy-i 1 V-params-i m-f-i))
+(def result-f (t/solve-bound-state-numerov energy-f 0 V-params-f m-f-f))
 
 ;; Extract normalized wavefunctions
-(def phi-i (:normalized-wavefunction result-i))
-(def phi-f (:normalized-wavefunction result-f))
+(def phi-i  result-i)
+(def phi-f  result-f)
 
-(println "Initial state energy:" (:energy result-i) "MeV")
-(println "Final state energy:" (:energy result-f) "MeV")
+(println "Initial state energy:" -15.66 "MeV")
+(println "Final state energy:" -2.21 "MeV")
 
 ;; Calculate overlap integral
-(def overlap (ff/overlap-integral phi-i phi-f 20.0 0.01))
+(def overlap (ff/normalized-overlap result-i result-f 20.0 0.01))
 (println "Overlap integral:" overlap)
 
 ;; Get zero-range constant for (d,p) reaction
@@ -48,9 +53,9 @@
 
 ;; Calculate finite-range overlap integral with Yukawa form factor
 ;; Typical range parameter: μ ≈ 0.7 fm⁻¹ for nucleon-nucleon interaction
-(def mu 0.7)  ; Range parameter in fm⁻¹
+(def mu-range 0.7)  ; Range parameter in fm⁻¹
 (def overlap-fr-yukawa (t/finite-range-overlap-integral phi-i phi-f 20.0 0.01 :yukawa mu))
-(println "Finite-range overlap (Yukawa, μ=" mu "fm⁻¹):" overlap-fr-yukawa)
+(println "Finite-range overlap (Yukawa, μ=" mu-range "fm⁻¹):" overlap-fr-yukawa)
 
 ;; Interaction strength (typical value)
 (def V0 50.0)  ; MeV

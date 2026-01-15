@@ -53,8 +53,9 @@
           v-eff (+ v-rho centrifugal)]
       (* lambda (- v-eff epsilon)))))
 
-(defn solve-bound-state-numerov [e l v0 rad diff h r-max]
-  "Solve the radial Schrödinger equation for a bound state using Numerov method
+(defn solve-bound-state-numerov 
+([e l v0 rad diff m-f h r-max]
+                                 "Solve the radial Schrödinger equation for a bound state using Numerov method
    in physical units.
    
    Parameters (all in physical units):
@@ -70,44 +71,49 @@
    
    Note: For bound states, we expect u(r → ∞) → 0. This function
    just integrates; use find-bound-state-energy to find the correct energy."
-  (let [steps (int (/ r-max h))
-        ;; Initialize with bound state start: u(r) ≈ r^(l+1) for small r
-        ;; For l=0: u(r) ≈ r, so u(h) ≈ h
-        ;; For l=1: u(r) ≈ r^2, so u(h) ≈ h^2
-        u0 0.0
-        u1 (m/pow h (inc l))  ; u1 = h^(l+1) in physical units
-        
-        ;; Pre-calculate f(r) values for Numerov using f-r-numerov
-        ;; f(r) = (2μ/ħ²) · [V_eff(r) - E]
-        ;; For bound states, E < 0, so f(r) > 0 in classically allowed region
-        fs (mapv (fn [r] 
-                   (if (zero? r)
-                     0.0  ; f(0) is infinite, but u(0)=0, so f(0)*u(0)=0
-                     (f-r-numerov r e l v0 rad diff)))
-                 (take (+ steps 2) (iterate #(+ % h) 0.0)))
-        h2-12 (/ (* h h) 12.0)]
-    
-    (let [results (loop [n 1
-                         results [u0 u1]]
-                    (if (>= n (dec steps))
-                      results
-                      (let [un (get results n)
-                            un-1 (get results (dec n))
-                            fn-1 (get fs (dec n))
-                            fn (get fs n)
-                            fn+1 (get fs (inc n))
-                            
-                            ;; Numerov step formula (physical units)
-                            numerator (+ (* 2.0 un) 
-                                         (- un-1) 
-                                         (* h2-12 (+ (* 10.0 fn un) (* fn-1 un-1))))
-                            denominator (- 1.0 (* h2-12 fn+1))
-                            un+1 (/ numerator denominator)]
-                        (recur (inc n) (conj results un+1)))))]
-      results)))
+                                 (let [steps (int (/ r-max h))
+                                       ;; Initialize with bound state start: u(r) ≈ r^(l+1) for small r
+                                       ;; For l=0: u(r) ≈ r, so u(h) ≈ h
+                                       ;; For l=1: u(r) ≈ r^2, so u(h) ≈ h^2
+                                       u0 0.0
+                                       u1 (m/pow h (inc l))  ; u1 = h^(l+1) in physical units
+                                       
+                                       ;; Pre-calculate f(r) values for Numerov using f-r-numerov
+                                       ;; f(r) = (2μ/ħ²) · [V_eff(r) - E]
+                                       ;; For bound states, E < 0, so f(r) > 0 in classically allowed region
+                                       fs (mapv (fn [r] 
+                                                  (if (zero? r)
+                                                    0.0  ; f(0) is infinite, but u(0)=0, so f(0)*u(0)=0
+                                                    (f-r-numerov r e l v0 rad diff m-f)))
+                                                (take (+ steps 2) (iterate #(+ % h) 0.0)))
+                                       h2-12 (/ (* h h) 12.0)]
+                                   
+                                   (let [results (loop [n 1
+                                                        results [u0 u1]]
+                                                   (if (>= n (dec steps))
+                                                     results
+                                                     (let [un (get results n)
+                                                           un-1 (get results (dec n))
+                                                           fn-1 (get fs (dec n))
+                                                           fn (get fs n)
+                                                           fn+1 (get fs (inc n))
+                                                           
+                                                           ;; Numerov step formula (physical units)
+                                                           numerator (+ (* 2.0 un) 
+                                                                        (- un-1) 
+                                                                        (* h2-12 (+ (* 10.0 fn un) (* fn-1 un-1))))
+                                                           denominator (- 1.0 (* h2-12 fn+1))
+                                                           un+1 (/ numerator denominator)]
+                                                       (recur (inc n) (conj results un+1)))))]
+                                     results)))
 
-(defn solve-bound-state-numerov-dimensionless [epsilon l lambda alpha h-rho rho-max]
-  "Solve the radial Schrödinger equation for a bound state using Numerov method
+  ([e l Vparams m-f]
+    (solve-bound-state-numerov e l (first Vparams) (second Vparams) (last Vparams) m-f 0.01 20.)
+    ))
+
+(defn solve-bound-state-numerov-dimensionless 
+  ([epsilon l lambda alpha h-rho rho-max]
+   "Solve the radial Schrödinger equation for a bound state using Numerov method
    with DIMENSIONLESS variables.
    
    Parameters (all in physical units):
@@ -134,49 +140,49 @@
    Note:   - ρ = r/R0 (dimensionless radius)
    Note: For bound states, we expect u(r → ∞) → 0. This function
    just integrates; use find-bound-state-energy to find the correct energy."
-  (let [               
-       steps (int (/ rho-max h-rho))
-        ;; Initialize with bound state start: u(rho) ≈ rho^(l+1)
-        ;; Note: u(rho) is the dimensionless radial wavefunction
-        ;; For l=0: u(rho) ≈ rho, so u(h_rho) ≈ h_rho
-        ;; For l=1: u(rho) ≈ rho^2, so u(h_rho) ≈ h_rho^2
-        u0 0.0
-        u1 (bound-state-start h-rho l)  ; u1 = h_rho^(l+1) in dimensionless units
-        
-        ;; Pre-calculate f(rho) values for Numerov in dimensionless form
-        ;; f(rho) = λ · [v(rho) + l(l+1)/(rho²) - ε]
-        ;; For bound states, ε < 0, so f(rho) > 0 in classically allowed region
-        fs (mapv (fn [rho] 
-                   (if (zero? rho)
-                     0.0  ; f(0) is infinite, but u(0)=0, so f(0)*u(0)=0
-                     (f-rho-numerov-dimensionless rho epsilon l lambda alpha)))
-                 (take (+ steps 2) (iterate #(+ % h-rho) 0.0)))
-        h-rho2-12 (/ (* h-rho h-rho) 12.0)]
-    
-    (let [results (loop [n 1
-                         results [u0 u1]]
-                    (if (>= n (dec steps))
-                      results
-                      (let [un (get results n)
-                            un-1 (get results (dec n))
-                            fn-1 (get fs (dec n))
-                            fn (get fs n)
-                            fn+1 (get fs (inc n))
-                            
-                            ;; Numerov step formula (dimensionless)
-                            numerator (+ (* 2.0 un) 
-                                         (- un-1) 
-                                         (* h-rho2-12 (+ (* 10.0 fn un) (* fn-1 un-1))))
-                            denominator (- 1.0 (* h-rho2-12 fn+1))
-                            un+1 (/ numerator denominator)]
-                        (recur (inc n) (conj results un+1)))))]
-      ;; The radial wavefunction u(r) should satisfy u(r) ≈ r^(l+1) for small r
-      ;; In dimensionless: u(rho) ≈ rho^(l+1) where rho = r/R0
-      ;; For l=0: u(rho) ≈ rho, so u(h_rho) = h_rho = h/R0
-      ;; But we want u(h) = h in physical units
-      ;; So we need: u(h) = R0 * u(h_rho) = R0 * (h/R0) = h ✓
-      ;; Therefore, we scale by R0 to convert from dimensionless to physical
-       results)))
+   (let [               
+         steps (int (/ rho-max h-rho))
+         ;; Initialize with bound state start: u(rho) ≈ rho^(l+1)
+         ;; Note: u(rho) is the dimensionless radial wavefunction
+         ;; For l=0: u(rho) ≈ rho, so u(h_rho) ≈ h_rho
+         ;; For l=1: u(rho) ≈ rho^2, so u(h_rho) ≈ h_rho^2
+         u0 0.0
+         u1 (bound-state-start h-rho l)  ; u1 = h_rho^(l+1) in dimensionless units
+         
+         ;; Pre-calculate f(rho) values for Numerov in dimensionless form
+         ;; f(rho) = λ · [v(rho) + l(l+1)/(rho²) - ε]
+         ;; For bound states, ε < 0, so f(rho) > 0 in classically allowed region
+         fs (mapv (fn [rho] 
+                    (if (zero? rho)
+                      0.0  ; f(0) is infinite, but u(0)=0, so f(0)*u(0)=0
+                      (f-rho-numerov-dimensionless rho epsilon l lambda alpha)))
+                  (take (+ steps 2) (iterate #(+ % h-rho) 0.0)))
+         h-rho2-12 (/ (* h-rho h-rho) 12.0)]
+     
+     (let [results (loop [n 1
+                          results [u0 u1]]
+                     (if (>= n (dec steps))
+                       results
+                       (let [un (get results n)
+                             un-1 (get results (dec n))
+                             fn-1 (get fs (dec n))
+                             fn (get fs n)
+                             fn+1 (get fs (inc n))
+                             
+                             ;; Numerov step formula (dimensionless)
+                             numerator (+ (* 2.0 un) 
+                                          (- un-1) 
+                                          (* h-rho2-12 (+ (* 10.0 fn un) (* fn-1 un-1))))
+                             denominator (- 1.0 (* h-rho2-12 fn+1))
+                             un+1 (/ numerator denominator)]
+                         (recur (inc n) (conj results un+1)))))]
+       ;; The radial wavefunction u(r) should satisfy u(r) ≈ r^(l+1) for small r
+       ;; In dimensionless: u(rho) ≈ rho^(l+1) where rho = r/R0
+       ;; For l=0: u(rho) ≈ rho, so u(h_rho) = h_rho = h/R0
+       ;; But we want u(h) = h in physical units
+       ;; So we need: u(h) = R0 * u(h_rho) = R0 * (h/R0) = h ✓
+       ;; Therefore, we scale by R0 to convert from dimensionless to physical
+       results))))
 
 
 (defn bound-state-boundary-value [u r-max h]
@@ -842,7 +848,9 @@
   "Yukawa form factor for finite-range interaction.
    
    The Yukawa form factor is commonly used for finite-range interactions:
-   F_Y(r) = exp(-μr) / (μr)
+   F_Y(r) = exp(-μr) / r
+   
+   This corresponds to the standard Yukawa potential form.
    
    Parameters:
    - r: Radial distance (fm)
@@ -850,12 +858,11 @@
    
    Returns: F_Y(r)
    
-   Note: For r = 0, F_Y(0) = 1/μ (limit as r → 0)
-   This is the standard form for finite-range transfer interactions."
+   Note: For r = 0, we use a small value to avoid division by zero.
+   The limit as r → 0 is handled by using r = h (step size) as minimum."
   [r mu]
-  (if (zero? r)
-    (/ 1.0 mu)  ; Limit as r → 0: exp(-μr)/(μr) → 1/μ
-    (/ (Math/exp (* (- mu) r)) (* mu r))))
+  (let [r-safe (if (zero? r) 1e-10 r)]  ; Avoid division by zero
+    (/ (Math/exp (* (- mu) r-safe)) r-safe)))
 
 (defn gaussian-form-factor
   "Gaussian form factor for finite-range interaction.
