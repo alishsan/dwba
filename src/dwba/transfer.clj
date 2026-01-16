@@ -1069,3 +1069,187 @@
   ;; Prior form is mathematically identical to post form
   ;; The difference is in the physical interpretation of the interaction
   (transfer-amplitude-post chi-i chi-f phi-i phi-f r-max h interaction-type interaction-params))
+
+;; ============================================================================
+;; LOCAL ENERGY APPROXIMATION (LEA) WITH HULTHEN POTENTIAL
+;; ============================================================================
+
+(defn hulthen-potential
+  "Hulthen potential for deuteron model.
+   
+   The Hulthen potential is:
+   V(r) = -V₀ · (e^(-αr) / (1 - e^(-βr)))
+   
+   For the standard Hulthen form (β = α):
+   V(r) = -V₀ · (e^(-αr) / (1 - e^(-αr)))
+   
+   Parameters:
+   - r: Radial distance (fm)
+   - V0: Potential depth (MeV), typically 50-70 MeV for deuteron
+   - alpha: Range parameter (fm⁻¹), typically α ≈ 0.23 fm⁻¹ for deuteron
+   - beta: Optional second range parameter (fm⁻¹). If nil, uses β = α (standard form)
+   
+   Returns: V(r) in MeV
+   
+   Typical deuteron parameters:
+   - V₀ ≈ 50-70 MeV
+   - α ≈ 0.23 fm⁻¹
+   - Binding energy: E_d ≈ -2.225 MeV
+   
+   Example:
+   (hulthen-potential 1.0 60.0 0.23)  ; Standard form at r=1 fm"
+  ([r V0 alpha]
+   (hulthen-potential r V0 alpha alpha))
+  ([r V0 alpha beta]
+   (let [r-safe (if (zero? r) 1e-10 r)
+         exp-alpha-r (Math/exp (* (- alpha) r-safe))
+         exp-beta-r (Math/exp (* (- beta) r-safe))
+         denominator (- 1.0 exp-beta-r)]
+     (if (< (Math/abs denominator) 1e-10)
+       (* -1.0 V0)  ; Limit as r → 0: V(0) = -V₀
+       (* -1.0 V0 (/ exp-alpha-r denominator))))))
+
+(defn hulthen-wavefunction
+  "Hulthen wavefunction for deuteron (analytical form).
+   
+   The Hulthen wavefunction for the deuteron (l=0, S-state) is:
+   u(r) = N · (e^(-αr) - e^(-βr)) / (1 - e^(-βr))
+   
+   For the standard form (β = α), this simplifies, but we use the general form.
+   
+   Parameters:
+   - r: Radial distance (fm)
+   - alpha: Range parameter (fm⁻¹), typically α ≈ 0.23 fm⁻¹
+   - beta: Second range parameter (fm⁻¹), typically β ≈ 1.0-1.5 fm⁻¹
+   - normalization: Normalization constant N (optional, calculated if nil)
+   
+   Returns: u(r) - radial wavefunction
+   
+   Note: This is the analytical form. For l > 0, numerical solution is needed."
+  ([r alpha beta]
+   (hulthen-wavefunction r alpha beta nil))
+  ([r alpha beta normalization]
+   (let [r-safe (if (zero? r) 1e-10 r)
+         exp-alpha-r (Math/exp (* (- alpha) r-safe))
+         exp-beta-r (Math/exp (* (- beta) r-safe))
+         numerator (- exp-alpha-r exp-beta-r)
+         denominator (- 1.0 exp-beta-r)]
+     (if (< (Math/abs denominator) 1e-10)
+       0.0  ; u(0) = 0
+       (let [u-unnormalized (/ numerator denominator)
+             N (or normalization 1.0)]  ; Default normalization, should be calculated
+         (* N u-unnormalized))))))
+
+(defn hulthen-wavefunction-normalized
+  "Calculate normalized Hulthen wavefunction.
+   
+   First calculates the normalization constant, then returns normalized wavefunction.
+   
+   Parameters:
+   - r: Radial distance (fm)
+   - alpha: Range parameter (fm⁻¹)
+   - beta: Second range parameter (fm⁻¹)
+   - r-max: Maximum radius for normalization (fm)
+   - h: Step size (fm)
+   
+   Returns: Normalized wavefunction value at r
+   
+   The normalization is: ∫₀^∞ |u(r)|² dr = 1"
+  [r alpha beta r-max h]
+  (let [n (int (/ r-max h))
+        ;; Calculate unnormalized wavefunction at all points
+        u-unnorm (mapv (fn [i]
+                        (let [r-val (* i h)]
+                          (hulthen-wavefunction r-val alpha beta 1.0)))
+                      (range n))
+        ;; Calculate norm squared
+        integrand (mapv #(* % %) u-unnorm)
+        simpson-sum (loop [i 1 sum 0.0]
+                     (if (>= i (dec n))
+                       sum
+                       (let [coeff (if (odd? i) 4.0 2.0)
+                             term (* coeff (get integrand i))]
+                         (recur (inc i) (+ sum term)))))
+        norm-squared (* (/ h 3.0)
+                       (+ (first integrand)
+                          (last integrand)
+                          simpson-sum))
+        normalization (Math/sqrt norm-squared)
+        idx (int (/ r h))
+        idx-safe (min idx (dec n))]
+    (if (and (>= idx-safe 0) (< idx-safe n))
+      (/ (get u-unnorm idx-safe) normalization)
+      0.0)))
+
+(defn lea-transfer-amplitude
+  "Calculate transfer amplitude using Local Energy Approximation (LEA) with Hulthen potential.
+   
+   LEA approximates the transfer amplitude by evaluating the overlap at the local energy
+   of the transferred particle. For (d,p) reactions, the deuteron is described by a
+   Hulthen wavefunction.
+   
+   The LEA amplitude is:
+   T_LEA = D₀ · ∫ φ*_f(r) φ_Hulthen(r) r² dr
+   
+   where φ_Hulthen is the Hulthen wavefunction for the deuteron.
+   
+   Parameters:
+   - phi-f: Final bound state wavefunction (vector) - nucleon bound in final nucleus
+   - alpha: Hulthen range parameter α (fm⁻¹), typically 0.23 fm⁻¹ for deuteron
+   - beta: Hulthen range parameter β (fm⁻¹), typically 1.0-1.5 fm⁻¹
+   - r-max: Maximum radius (fm)
+   - h: Step size (fm)
+   - D0: Zero-range constant (MeV·fm^(3/2)), typically from zero-range-constant function
+   
+   Returns: Transfer amplitude T_LEA
+   
+   Example:
+   (let [phi-f (:normalized-wavefunction (solve-bound-state ...))
+         D0 (zero-range-constant :d-p)]
+     (lea-transfer-amplitude phi-f 0.23 1.4 20.0 0.01 D0))"
+  [phi-f alpha beta r-max h D0]
+  (let [n (min (count phi-f) (int (/ r-max h)))
+        integrand (mapv (fn [i]
+                         (let [r (* i h)
+                               phi-f-val (get phi-f i)
+                               phi-f-conj (if (number? phi-f-val)
+                                           phi-f-val
+                                           (complex-from-cartesian (re phi-f-val) (- (im phi-f-val))))
+                               phi-hulthen (hulthen-wavefunction-normalized r alpha beta r-max h)]
+                           (* phi-f-conj phi-hulthen r r)))
+                       (range n))
+        simpson-sum (loop [i 1 sum 0.0]
+                     (if (>= i (dec n))
+                       sum
+                       (let [coeff (if (odd? i) 4.0 2.0)
+                             term (* coeff (get integrand i))]
+                         (recur (inc i) (+ sum term)))))
+        overlap (* (/ h 3.0)
+                  (+ (first integrand)
+                     (last integrand)
+                     simpson-sum))]
+    (* D0 overlap)))
+
+(defn lea-transfer-amplitude-simplified
+  "Simplified LEA transfer amplitude using standard Hulthen parameters for deuteron.
+   
+   Uses typical deuteron parameters:
+   - α = 0.23 fm⁻¹
+   - β = 1.4 fm⁻¹
+   
+   Parameters:
+   - phi-f: Final bound state wavefunction (vector)
+   - r-max: Maximum radius (fm)
+   - h: Step size (fm)
+   - reaction-type: Reaction type keyword (:d-p, :p-d, etc.) for D₀
+   
+   Returns: Transfer amplitude T_LEA
+   
+   Example:
+   (let [phi-f (:normalized-wavefunction (solve-bound-state ...))]
+     (lea-transfer-amplitude-simplified phi-f 20.0 0.01 :d-p))"
+  [phi-f r-max h reaction-type]
+  (let [alpha 0.23  ; Standard deuteron parameter
+        beta 1.4    ; Standard deuteron parameter
+        D0 (zero-range-constant reaction-type)]
+    (lea-transfer-amplitude phi-f alpha beta r-max h D0)))

@@ -11,8 +11,8 @@
 ;; ============================================================================
 
 (println "=== Example 1: Zero-Range Approximation ===")
-(def mu-i 884.3)
-(def mu-f 469.46)
+(def mu-i 884.3) ; 16O+n reduced mass
+(def mu-f 469.46); P+n reduced mass
 (def m-f-i (/ (m/sqrt (* 2. mu-i))  197.7 ))
 (def m-f-f (/ (m/sqrt (* 2. mu-f))  197.7 ))
 
