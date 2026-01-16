@@ -1,0 +1,1 @@
+["^ ","~:members",["^ ","hasCurrentElement",["~#set",[["^ ","~:flags",["^2",["~:method","~:public"]]]]],"checkCurrentElementForWrite",["^2",[["^ ","^3",["^2",["^4","^5"]]]]],"getCurrentElement",["^2",[["^ ","^3",["^2",["^4","^5"]]]]],"getCurrentElementAndAdvance",["^2",[["^ ","^3",["^2",["^4","^5"]]]]],"getPtr",["^2",[["^ ","^3",["^2",["^4","^5"]]]]]]]
