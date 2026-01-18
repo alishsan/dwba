@@ -111,3 +111,8 @@ coverage.xml
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# clj-kondo cache files
+.clj-kondo/.cache/
+*.transit.json
+.lsp/.cache/
