@@ -4,6 +4,7 @@
 [fastmath.polynomials :as poly]
  [fastmath.special.hypergeometric :as hg]
  [fastmath.special :as spec]
+ [fastmath.complex :as c]
    [fastmath.vector :as v]
    [dwba.finite-well :as fw :refer [j-l k-l j-l-deriv k-l-deriv j-ratio k-ratio
                                      finite-well-matching-error solver-step
@@ -131,7 +132,7 @@
   ;; F1(qr) = sin(qr)/(qr) - cos(qr) ≈ (qr)²/3 - (qr)⁴/30 + ...
   (let [z (* q r)]
     ;; Power series: F1(z) ≈ z²/3 - z⁴/30 (accurate for small z, avoids underflow)
-    (- (/ (* z z) 3.0) 
+    (- (/ (* z z)3.0) 
        (/ (* z z z z) 30.0))))
 
 (defn solve-numerov [e l v0 rad diff h r-max]
@@ -438,6 +439,20 @@
     (println (format "%-8.2f %-20.6e %-20.6e" 
                     (:h row) (:naive-error row) (:bessel-error row))))
   (println ""))
+
+
+
+;; Example of a single Numerov step with complex numbers
+(defn numerov-step-complex [u-n u-prev f-prev f-n f-next h]
+  (let [h2-12 (/ (* h h) 12.0)
+        ;; Numerator: 2*u_n - u_{n-1} + (h^2/12)*(10*f_n*u_n + f_{n-1}*u_{n-1})
+        term1 (v/sub (c/mul 2.0 u-n) u-prev)
+        term2 (c/mul h2-12 (v/add (c/mul 10.0 (c/mul f-n u-n)) 
+                                   (c/mul f-prev u-prev)))
+        numerator (v/add term1 term2)
+        ;; Denominator: 1 - (h^2/12)*f_{n+1}
+        denominator (v/sub 1.0 (c/mul h2-12 f-next))]
+    (v/div numerator denominator)))
 
 (defn xi ;h-bar and speed of light c are set to 1
   [^double E V  ^double a ^long L]  ;no coulomb ;construct R-matrix * a depending on 1D Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
