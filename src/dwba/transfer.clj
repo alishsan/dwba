@@ -1527,3 +1527,583 @@
                                                     (* (im T-val) (im T-val))))]
                                (* cg cg T-mag-squared))))]
     total-sum))
+
+;; ============================================================================
+;; PHASE 6: DIFFERENTIAL CROSS-SECTION
+;; ============================================================================
+
+(defn transfer-differential-cross-section
+  "Calculate differential cross-section for transfer reactions.
+   
+   The differential cross-section for transfer reactions is:
+   dσ/dΩ = (μ_f/(2πħ²))² · (k_f/k_i) · |T_transfer|² · S
+   
+   where:
+   - μ_f is the reduced mass in exit channel
+   - k_i, k_f are wavenumbers in entrance and exit channels
+   - T_transfer is the transfer amplitude (from transfer-amplitude-* functions)
+   - S is the spectroscopic factor (nuclear structure information)
+   
+   Parameters:
+   - T-amplitude: Transfer amplitude (can be complex or real number)
+   - S-factor: Spectroscopic factor (dimensionless, typically 0 < S < 1)
+   - k-i: Wavenumber in entrance channel (fm⁻¹)
+   - k-f: Wavenumber in exit channel (fm⁻¹)
+   - mass-factor: Mass factor (2μ/ħ²) in MeV⁻¹·fm⁻²
+   
+   Optional parameters:
+   - E-i: Incident energy (MeV) - for documentation/validation
+   - E-f: Final energy (MeV) - for documentation/validation
+   
+   Returns: dσ/dΩ in fm²/sr (can be converted to mb/sr by multiplying by 10)
+   
+   Example:
+   (let [T-transfer (transfer-amplitude-zero-range ...)
+         k-i (Math/sqrt (* mass-factor 10.0))
+         k-f (Math/sqrt (* mass-factor 8.0))
+         S 0.5]
+     (transfer-differential-cross-section T-transfer S k-i k-f mass-factor))"
+  ([T-amplitude S-factor k-i k-f mass-factor]
+   (transfer-differential-cross-section T-amplitude S-factor k-i k-f mass-factor nil nil))
+  ([T-amplitude S-factor k-i k-f mass-factor _E-i _E-f]
+   (let [;; Reduced mass factor: μ/(2πħ²) = mass-factor/(4π)
+         mu-factor (/ mass-factor (* 4.0 Math/PI))
+         ;; Wavenumber ratio: k_f/k_i
+         k-ratio (/ k-f k-i)
+         ;; Amplitude squared: |T|²
+         T-squared (if (number? T-amplitude)
+                    (* T-amplitude T-amplitude)
+                    (let [T-mag-val (mag T-amplitude)]
+                      (* T-mag-val T-mag-val)))
+         ;; Multiply all factors: (μ/(2πħ²))² · (k_f/k_i) · |T|² · S
+         dsigma (* mu-factor mu-factor k-ratio T-squared S-factor)]
+     dsigma)))
+
+(defn transfer-differential-cross-section-angular
+  "Calculate differential cross-section as a function of angle.
+   
+   This combines the transfer amplitude with angular distribution:
+   dσ/dΩ(θ) = (μ_f/(2πħ²))² · (k_f/k_i) · |T(θ)|² · S
+   
+   where T(θ) includes the angular momentum coupling and spherical harmonics.
+   
+   Parameters:
+   - T-amplitudes: Map of {L → T_L} transfer amplitudes for each angular momentum
+   - S-factor: Spectroscopic factor
+   - k-i: Wavenumber in entrance channel (fm⁻¹)
+   - k-f: Wavenumber in exit channel (fm⁻¹)
+   - theta: Scattering angle (radians)
+   - mass-factor: Mass factor (2μ/ħ²)
+   - phi: Azimuthal angle (radians, default 0)
+   
+   Returns: dσ/dΩ(θ) in fm²/sr
+   
+   Example:
+   (let [T-map {0 1.0, 1 0.5, 2 0.2}
+         k-i (Math/sqrt (* mass-factor 10.0))
+         k-f (Math/sqrt (* mass-factor 8.0))
+         S 0.5]
+     (transfer-differential-cross-section-angular T-map S k-i k-f (/ Math/PI 2) mass-factor))"
+  ([T-amplitudes S-factor k-i k-f theta mass-factor]
+   (transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f theta mass-factor 0.0))
+  ([T-amplitudes S-factor k-i k-f theta mass-factor phi]
+   (let [;; Get angular distribution (sum over L: |T_L|² · |Y_L0|²)
+         angular-dist (transfer-angular-distribution T-amplitudes theta phi)
+         ;; Reduced mass factor: μ/(2πħ²) = mass-factor/(4π)
+         mu-factor (/ mass-factor (* 4.0 Math/PI))
+         ;; Wavenumber ratio: k_f/k_i
+         k-ratio (/ k-f k-i)
+         ;; Multiply all factors: (μ/(2πħ²))² · (k_f/k_i) · angular_dist · S
+         dsigma (* mu-factor mu-factor k-ratio angular-dist S-factor)]
+     dsigma)))
+
+(defn transfer-total-cross-section
+  "Calculate total cross-section by integrating differential cross-section.
+   
+   The total cross-section is:
+   σ_total = ∫ dσ/dΩ dΩ = ∫₀^π ∫₀^2π dσ/dΩ(θ,φ) sin(θ) dθ dφ
+   
+   For coplanar scattering (φ=0), this simplifies to:
+   σ_total = 2π ∫₀^π dσ/dΩ(θ) sin(θ) dθ
+   
+   Uses Simpson's rule for numerical integration.
+   
+   Parameters:
+   - T-amplitudes: Map of {L → T_L} transfer amplitudes
+   - S-factor: Spectroscopic factor
+   - k-i: Wavenumber in entrance channel (fm⁻¹)
+   - k-f: Wavenumber in exit channel (fm⁻¹)
+   - mass-factor: Mass factor (2μ/ħ²)
+   - n-points: Number of integration points (default: 100)
+   - theta-min: Minimum angle (default: 0)
+   - theta-max: Maximum angle (default: π)
+   
+   Returns: σ_total in fm² (can be converted to mb by multiplying by 10)
+   
+   Example:
+   (let [T-map {0 1.0, 1 0.5}
+         k-i (Math/sqrt (* mass-factor 10.0))
+         k-f (Math/sqrt (* mass-factor 8.0))
+         S 0.5]
+     (transfer-total-cross-section T-map S k-i k-f mass-factor))"
+  ([T-amplitudes S-factor k-i k-f mass-factor]
+   (transfer-total-cross-section T-amplitudes S-factor k-i k-f mass-factor 100 0.0 Math/PI))
+  ([T-amplitudes S-factor k-i k-f mass-factor n-points]
+   (transfer-total-cross-section T-amplitudes S-factor k-i k-f mass-factor n-points 0.0 Math/PI))
+  ([T-amplitudes S-factor k-i k-f mass-factor n-points theta-min theta-max]
+   (let [;; Get angular distribution function
+         angular-dist-fn (transfer-angular-distribution-function T-amplitudes theta-min theta-max n-points)
+         ;; Reduced mass factor: μ/(2πħ²) = mass-factor/(4π)
+         mu-factor (/ mass-factor (* 4.0 Math/PI))
+         ;; Wavenumber ratio: k_f/k_i
+         k-ratio (/ k-f k-i)
+         ;; Integrate: ∫ dσ/dΩ(θ) sin(θ) dθ using Simpson's rule
+         integral (loop [i 1 sum 0.0]
+                   (if (>= i (dec (count angular-dist-fn)))
+                     sum
+                     (let [[theta dsigma-angular] (nth angular-dist-fn i)
+                           coeff (if (odd? i) 4.0 2.0)
+                           sin-theta (Math/sin theta)
+                           term (* coeff dsigma-angular sin-theta)]
+                       (recur (inc i) (+ sum term)))))
+         ;; Final integral value: (h/3) * [f₀ + fₙ + sum]
+         h-theta (/ (- theta-max theta-min) (dec n-points))
+         [theta-first dsigma-first] (first angular-dist-fn)
+         [theta-last dsigma-last] (last angular-dist-fn)
+         final-integral (* (/ h-theta 3.0)
+                          (+ (* dsigma-first (Math/sin theta-first))
+                             (* dsigma-last (Math/sin theta-last))
+                             integral))
+         ;; Total cross-section: 2π · (μ/(2πħ²))² · (k_f/k_i) · integral · S
+         sigma-total (* 2.0 Math/PI mu-factor mu-factor k-ratio final-integral S-factor)]
+     sigma-total)))
+
+(defn transfer-kinematic-factors
+  "Calculate kinematic factors for transfer reactions.
+   
+   Returns wavenumbers and energy factors needed for cross-section calculations.
+   
+   Parameters:
+   - E-i: Incident energy in CM frame (MeV)
+   - E-f: Final energy in CM frame (MeV)
+   - mass-factor: Mass factor (2μ/ħ²) in MeV⁻¹·fm⁻²
+   
+   Returns: Map with {:k-i, :k-f, :k-ratio, :E-i, :E-f}
+   
+   Example:
+   (transfer-kinematic-factors 10.0 8.0 mass-factor)
+   => {:k-i 0.5, :k-f 0.45, :k-ratio 0.9, :E-i 10.0, :E-f 8.0}"
+  [E-i E-f mass-factor]
+  (let [k-i (Math/sqrt (* mass-factor E-i))
+        k-f (Math/sqrt (* mass-factor E-f))
+        k-ratio (/ k-f k-i)]
+    {:k-i k-i
+     :k-f k-f
+     :k-ratio k-ratio
+     :E-i E-i
+     :E-f E-f}))
+
+(defn transfer-lab-to-cm
+  "Convert transfer cross-section from lab frame to CM frame.
+   
+   For transfer reactions, the transformation is:
+   dσ/dΩ_CM = dσ/dΩ_lab · (dΩ_lab/dΩ_CM)
+   
+   where the Jacobian depends on the masses and angles.
+   
+   Parameters:
+   - dsigma-lab: Differential cross-section in lab frame (fm²/sr)
+   - theta-lab: Scattering angle in lab frame (radians)
+   - theta-cm: Scattering angle in CM frame (radians)
+   - m-a: Mass of projectile a (amu)
+   - m-A: Mass of target A (amu)
+   - m-b: Mass of outgoing particle b (amu)
+   - m-B: Mass of residual nucleus B (amu)
+   
+   Returns: dσ/dΩ_CM in fm²/sr
+   
+   Note: This is a simplified version. Full transformation requires
+   solving the kinematic equations for the specific reaction.
+   For now, we use a simple sin ratio approximation."
+  [dsigma-lab theta-lab theta-cm _m-a _m-A _m-b _m-B]
+  (let [;; Simplified Jacobian: dΩ_lab/dΩ_CM ≈ sin(θ_lab)/sin(θ_cm)
+        ;; This is an approximation - full calculation requires solving kinematic equations
+        sin-lab (Math/sin theta-lab)
+        sin-cm (Math/sin theta-cm)
+        jacobian (if (< sin-cm 1e-10)
+                  1.0  ; Avoid division by zero
+                  (/ sin-lab sin-cm))]
+    (* dsigma-lab jacobian)))
+
+(defn transfer-cm-to-lab
+  "Convert transfer cross-section from CM frame to lab frame.
+   
+   Inverse of transfer-lab-to-cm.
+   
+   Parameters:
+   - dsigma-cm: Differential cross-section in CM frame (fm²/sr)
+   - theta-lab: Scattering angle in lab frame (radians)
+   - theta-cm: Scattering angle in CM frame (radians)
+   - m-a: Mass of projectile a (amu)
+   - m-A: Mass of target A (amu)
+   - m-b: Mass of outgoing particle b (amu)
+   - m-B: Mass of residual nucleus B (amu)
+   
+   Returns: dσ/dΩ_lab in fm²/sr"
+  [dsigma-cm theta-lab theta-cm _m-a _m-A _m-b _m-B]
+  (let [;; Inverse Jacobian: dΩ_CM/dΩ_lab ≈ sin(θ_cm)/sin(θ_lab)
+        ;; This is an approximation - full calculation requires solving kinematic equations
+        sin-lab (Math/sin theta-lab)
+        sin-cm (Math/sin theta-cm)
+        jacobian (if (< sin-lab 1e-10)
+                  1.0  ; Avoid division by zero
+                  (/ sin-cm sin-lab))]
+    (* dsigma-cm jacobian)))
+
+;; ============================================================================
+;; OPTICAL POTENTIALS FOR TRANSFER REACTIONS
+;; ============================================================================
+
+(defn optical-potential-woods-saxon
+  "Calculate optical potential with Woods-Saxon form factor.
+   
+   The optical potential has the form:
+   U(r) = -V · f_V(r) - iW · f_W(r) + V_so · (l·s) · f_so(r) + V_C(r)
+   
+   where:
+   - V is the real potential depth (MeV)
+   - W is the imaginary potential depth (MeV) - accounts for absorption
+   - V_so is the spin-orbit coupling strength (MeV)
+   - f_V, f_W, f_so are Woods-Saxon form factors
+   - V_C is the Coulomb potential
+   
+   Parameters:
+   - r: Radial distance (fm)
+   - V-params: Real potential parameters [V0, R_V, a_V]
+   - W-params: Imaginary potential parameters [W0, R_W, a_W] (optional)
+   - V-so: Spin-orbit potential depth (MeV, optional)
+   - R-so: Spin-orbit radius (fm, optional)
+   - a-so: Spin-orbit diffuseness (fm, optional)
+   - l: Orbital angular momentum
+   - s: Spin (1/2 for nucleons)
+   - j: Total angular momentum
+   - Z1, Z2: Charges of projectile and target (for Coulomb, optional)
+   - R-C: Coulomb radius (fm, optional)
+   
+   Returns: Complex potential U(r) in MeV
+   
+   Example:
+   (optical-potential-woods-saxon 2.0 
+                                   [50.0 2.0 0.6]  ; Real potential
+                                   [10.0 2.0 0.6]  ; Imaginary potential
+                                   7.0 2.0 0.6     ; Spin-orbit
+                                   1 0.5 1.5       ; l, s, j
+                                   1 8 2.0)        ; Z1, Z2, R_C)"
+  ([r V-params]
+   (optical-potential-woods-saxon r V-params nil nil nil nil nil nil nil nil nil nil))
+  ([r V-params W-params]
+   (optical-potential-woods-saxon r V-params W-params nil nil nil nil nil nil nil nil nil))
+  ([r V-params W-params V-so R-so a-so l s j Z1 Z2 R-C]
+   (let [;; Real Woods-Saxon potential: -V0/(1+exp((r-R_V)/a_V))
+         [V0 R-V a-V] V-params
+         f-V (/ 1.0 (+ 1.0 (Math/exp (/ (- r R-V) a-V))))
+         V-real (* -1.0 V0 f-V)
+         
+         ;; Imaginary Woods-Saxon potential: -iW0/(1+exp((r-R_W)/a_W))
+         W-imag (if W-params
+                 (let [[W0 R-W a-W] W-params
+                       f-W (/ 1.0 (+ 1.0 (Math/exp (/ (- r R-W) a-W))))]
+                   (* -1.0 W0 f-W))
+                 0.0)
+         
+         ;; Spin-orbit coupling: V_so · (l·s) · f_so(r)
+         ;; (l·s) = (j(j+1) - l(l+1) - s(s+1))/2
+         V-so-term (if (and V-so R-so a-so l s j)
+                    (let [f-so (/ 1.0 (+ 1.0 (Math/exp (/ (- r R-so) a-so))))
+                          ;; Derivative of f-so for spin-orbit form factor
+                          df-so-dr (/ (* f-so (- 1.0 f-so)) a-so)
+                          l-dot-s (/ (- (* j (+ j 1.0))
+                                       (* l (+ l 1.0))
+                                       (* s (+ s 1.0)))
+                                    2.0)
+                          V-so-radial (* V-so l-dot-s df-so-dr (/ 1.0 r))]
+                      V-so-radial)
+                    0.0)
+         
+         ;; Coulomb potential: Z1*Z2*e²/r for r > R_C, else Z1*Z2*e²*(3 - r²/R_C²)/(2*R_C)
+         V-coulomb (if (and Z1 Z2 R-C)
+                    (let [Z1Z2e2 (* Z1 Z2 1.44)]  ; e² = 1.44 MeV·fm
+                      (if (> r R-C)
+                        (/ Z1Z2e2 r)
+                        (* Z1Z2e2 (/ (- 3.0 (/ (* r r) (* R-C R-C))) (* 2.0 R-C)))))
+                   0.0)
+         
+         ;; Total potential: V_real + i*W_imag + V_so + V_coulomb
+         total-real (+ V-real V-so-term V-coulomb)]
+     (complex-cartesian total-real W-imag))))
+
+(defn optical-potential-parameters
+  "Get standard optical potential parameters for common reactions.
+   
+   Returns parameter sets for:
+   - Real potential: [V0, R_V, a_V]
+   - Imaginary potential: [W0, R_W, a_W]
+   - Spin-orbit: [V_so, R_so, a_so]
+   
+   Parameters:
+   - projectile: Projectile type (:p, :n, :d, :alpha, etc.)
+   - target-A: Target mass number
+   - E-lab: Lab energy (MeV)
+   
+   Returns: Map with {:V-params, :W-params, :V-so, :R-so, :a-so}
+   
+   Note: These are typical values. Actual parameters should be fitted
+   to experimental data for specific reactions.
+   
+   Example:
+   (optical-potential-parameters :p 16 10.0)
+   => {:V-params [50.0 2.0 0.6], :W-params [10.0 2.0 0.6], ...}"
+  [projectile target-A E-lab]
+  (let [;; Radius parameter: R = r0 * A^(1/3)
+        r0 1.25  ; fm
+        R-base (* r0 (Math/pow target-A (/ 1.0 3.0)))
+        a-diff 0.6  ; Typical diffuseness (fm)
+        
+        ;; Real potential depth (MeV) - energy dependent
+        V0-base (case projectile
+                 :p 50.0
+                 :n 50.0
+                 :d 100.0
+                 :alpha 200.0
+                 50.0)  ; Default
+        V0-energy-dep (* V0-base (- 1.0 (* 0.003 E-lab)))  ; Rough energy dependence
+        
+        ;; Imaginary potential depth (MeV)
+        W0-base (case projectile
+                 :p 10.0
+                 :n 10.0
+                 :d 20.0
+                 :alpha 30.0
+                 10.0)  ; Default
+        W0-energy-dep (* W0-base (Math/sqrt E-lab))  ; Rough energy dependence
+        
+        ;; Spin-orbit parameters
+        V-so (case projectile
+              :p 7.0
+              :n 7.0
+              :d 0.0  ; No spin-orbit for deuterons typically
+              :alpha 0.0
+              0.0)  ; Default: no spin-orbit
+        
+        R-so R-base
+        a-so a-diff]
+    {:V-params [V0-energy-dep R-base a-diff]
+     :W-params [W0-energy-dep R-base a-diff]
+     :V-so V-so
+     :R-so R-so
+     :a-so a-so}))
+
+(defn optical-potential-energy-dependent
+  "Calculate energy-dependent optical potential.
+   
+   Optical potential parameters often depend on energy. This function
+   implements common energy-dependent parameterizations.
+   
+   Parameters:
+   - r: Radial distance (fm)
+   - projectile: Projectile type
+   - target-A: Target mass number
+   - E-lab: Lab energy (MeV)
+   - l: Orbital angular momentum
+   - s: Spin
+   - j: Total angular momentum
+   - Z1, Z2: Charges (optional)
+   
+   Returns: Complex potential U(r) in MeV
+   
+   Example:
+   (optical-potential-energy-dependent 2.0 :p 16 10.0 1 0.5 1.5 1 8)"
+  [r projectile target-A E-lab l s j & {:keys [Z1 Z2 R-C]}]
+  (let [params (optical-potential-parameters projectile target-A E-lab)
+        V-params (:V-params params)
+        W-params (:W-params params)
+        V-so (:V-so params)
+        R-so (:R-so params)
+        a-so (:a-so params)]
+    (optical-potential-woods-saxon r V-params W-params V-so R-so a-so l s j Z1 Z2 R-C)))
+
+(defn optical-potential-entrance-channel
+  "Calculate optical potential for entrance channel of transfer reaction.
+   
+   This is a convenience function that sets up the optical potential
+   for the entrance channel (projectile + target).
+   
+   Parameters:
+   - r: Radial distance (fm)
+   - projectile-type: Type of projectile (:p, :n, :d, :alpha)
+   - target-A: Target mass number
+   - target-Z: Target charge number
+   - E-lab: Lab energy (MeV)
+   - l: Orbital angular momentum
+   - s: Spin
+   - j: Total angular momentum
+   
+   Returns: Complex potential U(r) in MeV
+   
+   Example:
+   (optical-potential-entrance-channel 2.0 :d 16 8 10.0 1 0.5 1.5)"
+  [r projectile-type target-A target-Z E-lab l s j]
+  (let [projectile-Z (case projectile-type
+                      :p 1
+                      :n 0
+                      :d 1
+                      :alpha 2
+                      0)]
+    (optical-potential-energy-dependent r projectile-type target-A E-lab l s j
+                                      :Z1 projectile-Z
+                                      :Z2 target-Z
+                                      :R-C (* 1.25 (Math/pow target-A (/ 1.0 3.0))))))
+
+(defn optical-potential-exit-channel
+  "Calculate optical potential for exit channel of transfer reaction.
+   
+   This is a convenience function that sets up the optical potential
+   for the exit channel (outgoing particle + residual nucleus).
+   
+   Parameters:
+   - r: Radial distance (fm)
+   - outgoing-type: Type of outgoing particle (:p, :n, :d, :alpha)
+   - residual-A: Residual nucleus mass number
+   - residual-Z: Residual nucleus charge number
+   - E-lab: Lab energy in exit channel (MeV)
+   - l: Orbital angular momentum
+   - s: Spin
+   - j: Total angular momentum
+   
+   Returns: Complex potential U(r) in MeV
+   
+   Example:
+   (optical-potential-exit-channel 2.0 :p 17 8 8.0 1 0.5 1.5)"
+  [r outgoing-type residual-A residual-Z E-lab l s j]
+  (let [outgoing-Z (case outgoing-type
+                    :p 1
+                    :n 0
+                    :d 1
+                    :alpha 2
+                    0)]
+    (optical-potential-energy-dependent r outgoing-type residual-A E-lab l s j
+                                      :Z1 outgoing-Z
+                                      :Z2 residual-Z
+                                      :R-C (* 1.25 (Math/pow residual-A (/ 1.0 3.0))))))
+
+(defn f-r-numerov-complex
+  "Calculate f(r) for Numerov method with complex optical potential.
+   
+   f(r) = (2μ/ħ²) * [E - U(r)] - l(l+1)/r²
+   
+   Parameters:
+   - r: Radial distance (fm)
+   - E: Energy (MeV)
+   - l: Orbital angular momentum
+   - U: Complex potential U(r) (MeV)
+   - mass-factor: Mass factor (2μ/ħ²)
+   
+   Returns: Complex f(r) value"
+  [r E l U mass-factor]
+  (let [;; Centrifugal term: l(l+1)/r²
+        centrifugal (if (zero? r)
+                     0.0  ; Avoid division by zero
+                     (/ (* l (+ l 1.0)) (* r r)))
+        ;; Effective potential term: (2μ/ħ²) * [E - U(r)]
+        U-effective (if (number? U)
+                     (- E U)
+                     (subt E U))
+        potential-term (mul mass-factor U-effective)
+        ;; Total: f(r) = (2μ/ħ²)[E-U] - l(l+1)/r²
+        f-total (subt potential-term centrifugal)]
+    f-total))
+
+(defn distorted-wave-optical
+  "Calculate distorted wave using optical potential with complex Numerov.
+   
+   Solves the Schrödinger equation with optical potential:
+   -∇²/2μ · χ + U(r) · χ = E · χ
+   
+   Parameters:
+   - E: Energy (MeV)
+   - l: Orbital angular momentum
+   - s: Spin
+   - j: Total angular momentum
+   - optical-potential-fn: Function r → U(r) (complex potential)
+   - r-max: Maximum radius (fm)
+   - h: Step size (fm)
+   - mass-factor: Mass factor (2μ/ħ²)
+   
+   Returns: Vector of complex distorted wave values χ(r)
+   
+   Note: Uses complex Numerov integration. The wavefunction will be complex
+   due to the imaginary part of the optical potential (absorption).
+   
+   Example:
+   (let [U-fn (fn [r] (optical-potential-entrance-channel r :d 16 8 10.0 1 0.5 1.5))]
+     (distorted-wave-optical 10.0 1 0.5 1.5 U-fn 20.0 0.01 mass-factor))"
+  [E l s j optical-potential-fn r-max h mass-factor]
+  (let [steps (int (/ r-max h))
+        h2-12 (/ (* h h) 12.0)
+        ;; Initial conditions: u(0) = 0, u(h) ≈ h^(l+1)
+        u0 (complex-cartesian 0.0 0.0)
+        u1-init (Math/pow h (inc l))
+        u1 (complex-cartesian u1-init 0.0)
+        
+        ;; Pre-calculate f(r) values at all radial points
+        rs (take (+ steps 2) (iterate #(+ % h) 0.0))
+        fs (mapv (fn [r]
+                  (let [U (optical-potential-fn r)]
+                    (f-r-numerov-complex r E l U mass-factor)))
+                rs)]
+    ;; Complex Numerov integration
+    (loop [n 1
+           results [u0 u1]]
+      (if (>= n (dec steps))
+        results
+        (let [un (get results n)
+              un-1 (get results (dec n))
+              fn-1 (get fs (dec n))
+              fn (get fs n)
+              fn+1 (get fs (inc n))
+              ;; Use complex Numerov step
+              un+1 (numerov-step-complex un un-1 fn-1 fn fn+1 h)]
+          (recur (inc n) (conj results un+1)))))))
+
+(defn optical-potential-summary
+  "Get summary of optical potential parameters.
+   
+   Returns a formatted string with all optical potential parameters.
+   
+   Parameters:
+   - projectile: Projectile type
+   - target-A: Target mass number
+   - E-lab: Lab energy (MeV)
+   
+   Returns: String summary
+   
+   Example:
+   (optical-potential-summary :p 16 10.0)"
+  [projectile target-A E-lab]
+  (let [params (optical-potential-parameters projectile target-A E-lab)
+        V-params (:V-params params)
+        W-params (:W-params params)
+        V-so (:V-so params)
+        R-so (:R-so params)
+        a-so (:a-so params)]
+    (format "Optical Potential Parameters:
+Projectile: %s
+Target A: %d
+Lab Energy: %.2f MeV
+Real Potential: V0=%.2f MeV, R=%.2f fm, a=%.2f fm
+Imaginary Potential: W0=%.2f MeV, R=%.2f fm, a=%.2f fm
+Spin-Orbit: V_so=%.2f MeV, R=%.2f fm, a=%.2f fm"
+            (name projectile) target-A E-lab
+            (first V-params) (second V-params) (last V-params)
+            (first W-params) (second W-params) (last W-params)
+            V-so R-so a-so)))

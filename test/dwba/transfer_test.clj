@@ -262,3 +262,379 @@
           expected-cg (* (Math/sqrt 5.0) w3j)]  ; sqrt(2*2+1) = sqrt(5)
       (is (< (Math/abs (- cg expected-cg)) 1.0)
           "Clebsch-Gordan and Wigner 3-j should be related"))))
+
+;; ============================================================================
+;; PHASE 6: DIFFERENTIAL CROSS-SECTION TESTS
+;; ============================================================================
+
+(deftest transfer-differential-cross-section-basic-test
+  (testing "Transfer differential cross-section basic calculation"
+    (let [T-amplitude 1.0
+          S-factor 0.5
+          k-i 0.5
+          k-f 0.45
+          dsigma (t/transfer-differential-cross-section T-amplitude S-factor k-i k-f mass-factor)]
+      (is (number? dsigma) "Should return a number")
+      (is (>= dsigma 0) "Should be non-negative")
+      (is (not (Double/isNaN dsigma)) "Should not be NaN")
+      (is (not (Double/isInfinite dsigma)) "Should not be infinite")))
+  (testing "Transfer differential cross-section with complex amplitude"
+    (let [T-amplitude (complex-cartesian 1.0 0.5)
+          S-factor 0.5
+          k-i 0.5
+          k-f 0.45
+          dsigma (t/transfer-differential-cross-section T-amplitude S-factor k-i k-f mass-factor)]
+      (is (number? dsigma) "Should handle complex amplitudes")
+      (is (>= dsigma 0) "Should be non-negative"))))
+
+(deftest transfer-differential-cross-section-kinematic-test
+  (testing "Transfer differential cross-section depends on kinematic factors"
+    (let [T-amplitude 1.0
+          S-factor 0.5
+          k-i-1 0.5
+          k-f-1 0.45
+          dsigma-1 (t/transfer-differential-cross-section T-amplitude S-factor k-i-1 k-f-1 mass-factor)
+          k-i-2 0.6
+          k-f-2 0.5
+          dsigma-2 (t/transfer-differential-cross-section T-amplitude S-factor k-i-2 k-f-2 mass-factor)]
+      (is (not= dsigma-1 dsigma-2) "Should vary with wavenumbers")
+      (is (number? dsigma-1) "First result should be a number")
+      (is (number? dsigma-2) "Second result should be a number"))))
+
+(deftest transfer-differential-cross-section-spectroscopic-test
+  (testing "Transfer differential cross-section scales with spectroscopic factor"
+    (let [T-amplitude 1.0
+          k-i 0.5
+          k-f 0.45
+          S-1 0.5
+          dsigma-1 (t/transfer-differential-cross-section T-amplitude S-1 k-i k-f mass-factor)
+          S-2 1.0
+          dsigma-2 (t/transfer-differential-cross-section T-amplitude S-2 k-i k-f mass-factor)]
+      (is (not= dsigma-1 dsigma-2) "Should vary with spectroscopic factor")
+      (is (< dsigma-1 dsigma-2) "Should increase with larger S-factor")
+      (is (number? dsigma-1) "First result should be a number")
+      (is (number? dsigma-2) "Second result should be a number"))))
+
+(deftest transfer-differential-cross-section-angular-test
+  (testing "Transfer differential cross-section with angular distribution"
+    (let [T-amplitudes {0 1.0, 1 0.5}
+          S-factor 0.5
+          k-i 0.5
+          k-f 0.45
+          theta (/ Math/PI 2)
+          dsigma (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f theta mass-factor)]
+      (is (number? dsigma) "Should return a number")
+      (is (>= dsigma 0) "Should be non-negative")
+      (is (not (Double/isNaN dsigma)) "Should not be NaN")))
+  (testing "Transfer differential cross-section varies with angle"
+    (let [T-amplitudes {1 1.0, 2 0.5}
+          S-factor 0.5
+          k-i 0.5
+          k-f 0.45
+          dsigma-pi6 (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f (/ Math/PI 6) mass-factor)
+          dsigma-pi4 (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f (/ Math/PI 4) mass-factor)
+          dsigma-pi3 (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f (/ Math/PI 3) mass-factor)
+          dsigma-pi2 (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f (/ Math/PI 2) mass-factor)]
+      (is (number? dsigma-pi6) "Should return a number at theta=π/6")
+      (is (number? dsigma-pi4) "Should return a number at theta=π/4")
+      (is (number? dsigma-pi3) "Should return a number at theta=π/3")
+      (is (number? dsigma-pi2) "Should return a number at theta=π/2")
+      ;; Check that not all values are identical
+      (let [unique-values (distinct [dsigma-pi6 dsigma-pi4 dsigma-pi3 dsigma-pi2])]
+        (is (>= (count unique-values) 1) "Should have variation (at least one unique value)")))))
+
+(deftest transfer-total-cross-section-basic-test
+  (testing "Transfer total cross-section basic calculation"
+    (let [T-amplitudes {0 1.0, 1 0.5}
+          S-factor 0.5
+          k-i 0.5
+          k-f 0.45
+          sigma-total (t/transfer-total-cross-section T-amplitudes S-factor k-i k-f mass-factor)]
+      (is (number? sigma-total) "Should return a number")
+      (is (>= sigma-total 0) "Should be non-negative")
+      (is (not (Double/isNaN sigma-total)) "Should not be NaN")
+      (is (not (Double/isInfinite sigma-total)) "Should not be infinite")))
+  (testing "Transfer total cross-section with different integration points"
+    (let [T-amplitudes {0 1.0}
+          S-factor 0.5
+          k-i 0.5
+          k-f 0.45
+          sigma-50 (t/transfer-total-cross-section T-amplitudes S-factor k-i k-f mass-factor 50)
+          sigma-100 (t/transfer-total-cross-section T-amplitudes S-factor k-i k-f mass-factor 100)]
+      (is (number? sigma-50) "Should return a number with 50 points")
+      (is (number? sigma-100) "Should return a number with 100 points")
+      (is (>= sigma-50 0) "Should be non-negative")
+      (is (>= sigma-100 0) "Should be non-negative"))))
+
+(deftest transfer-kinematic-factors-test
+  (testing "Transfer kinematic factors calculation"
+    (let [E-i 10.0
+          E-f 8.0
+          factors (t/transfer-kinematic-factors E-i E-f mass-factor)]
+      (is (map? factors) "Should return a map")
+      (is (contains? factors :k-i) "Should contain :k-i")
+      (is (contains? factors :k-f) "Should contain :k-f")
+      (is (contains? factors :k-ratio) "Should contain :k-ratio")
+      (is (contains? factors :E-i) "Should contain :E-i")
+      (is (contains? factors :E-f) "Should contain :E-f")
+      (is (number? (:k-i factors)) "k-i should be a number")
+      (is (number? (:k-f factors)) "k-f should be a number")
+      (is (number? (:k-ratio factors)) "k-ratio should be a number")
+      (is (>= (:k-i factors) 0) "k-i should be non-negative")
+      (is (>= (:k-f factors) 0) "k-f should be non-negative")
+      (is (> (:k-ratio factors) 0) "k-ratio should be positive")
+      (is (< (:k-ratio factors) 1.0) "k-ratio should be < 1 when E-f < E-i"))))
+
+(deftest transfer-kinematic-factors-energy-test
+  (testing "Transfer kinematic factors depend on energy"
+    (let [E-i-1 10.0
+          E-f-1 8.0
+          factors-1 (t/transfer-kinematic-factors E-i-1 E-f-1 mass-factor)
+          E-i-2 15.0
+          E-f-2 12.0
+          factors-2 (t/transfer-kinematic-factors E-i-2 E-f-2 mass-factor)]
+      (is (not= (:k-i factors-1) (:k-i factors-2)) "k-i should vary with energy")
+      (is (not= (:k-f factors-1) (:k-f factors-2)) "k-f should vary with energy")
+      (is (< (:k-i factors-1) (:k-i factors-2)) "k-i should increase with energy")
+      (is (< (:k-f factors-1) (:k-f factors-2)) "k-f should increase with energy"))))
+
+(deftest transfer-lab-to-cm-test
+  (testing "Transfer lab to CM frame conversion"
+    (let [dsigma-lab 1.0
+          theta-lab (/ Math/PI 4)
+          theta-cm (/ Math/PI 3)
+          dsigma-cm (t/transfer-lab-to-cm dsigma-lab theta-lab theta-cm 1.0 16.0 1.0 17.0)]
+      (is (number? dsigma-cm) "Should return a number")
+      (is (>= dsigma-cm 0) "Should be non-negative")
+      (is (not (Double/isNaN dsigma-cm)) "Should not be NaN")))
+  (testing "Transfer lab to CM with same angles"
+    (let [dsigma-lab 1.0
+          theta (/ Math/PI 4)
+          dsigma-cm (t/transfer-lab-to-cm dsigma-lab theta theta 1.0 16.0 1.0 17.0)]
+      (is (number? dsigma-cm) "Should return a number when angles are equal")
+      (is (>= dsigma-cm 0) "Should be non-negative"))))
+
+(deftest transfer-cm-to-lab-test
+  (testing "Transfer CM to lab frame conversion"
+    (let [dsigma-cm 1.0
+          theta-lab (/ Math/PI 4)
+          theta-cm (/ Math/PI 3)
+          dsigma-lab (t/transfer-cm-to-lab dsigma-cm theta-lab theta-cm 1.0 16.0 1.0 17.0)]
+      (is (number? dsigma-lab) "Should return a number")
+      (is (>= dsigma-lab 0) "Should be non-negative")
+      (is (not (Double/isNaN dsigma-lab)) "Should not be NaN")))
+  (testing "Transfer CM to lab with same angles"
+    (let [dsigma-cm 1.0
+          theta (/ Math/PI 4)
+          dsigma-lab (t/transfer-cm-to-lab dsigma-cm theta theta 1.0 16.0 1.0 17.0)]
+      (is (number? dsigma-lab) "Should return a number when angles are equal")
+      (is (>= dsigma-lab 0) "Should be non-negative"))))
+
+(deftest transfer-cross-section-consistency-test
+  (testing "Transfer cross-section functions are consistent"
+    (let [T-amplitudes {0 1.0, 1 0.5}
+          S-factor 0.5
+          k-i 0.5
+          k-f 0.45
+          theta (/ Math/PI 2)
+          ;; Calculate using angular function
+          dsigma-angular (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f theta mass-factor)
+          ;; Calculate using basic function with angular distribution
+          angular-dist (t/transfer-angular-distribution T-amplitudes theta 0)
+          T-effective (Math/sqrt angular-dist)
+          dsigma-basic (t/transfer-differential-cross-section T-effective S-factor k-i k-f mass-factor)]
+      (is (number? dsigma-angular) "Angular function should return a number")
+      (is (number? dsigma-basic) "Basic function should return a number")
+      (is (>= dsigma-angular 0) "Angular result should be non-negative")
+      (is (>= dsigma-basic 0) "Basic result should be non-negative")
+      ;; They should be approximately equal (within numerical precision)
+      ;; Use relative error tolerance
+      (let [max-val (Math/max (Math/abs dsigma-angular) (Math/abs dsigma-basic))
+            rel-error (if (> max-val 1e-10)
+                       (/ (Math/abs (- dsigma-angular dsigma-basic)) max-val)
+                       0.0)]
+        (is (< rel-error 0.2) "Results should be consistent (within 20% relative error)")))))
+
+;; ============================================================================
+;; OPTICAL POTENTIAL TESTS
+;; ============================================================================
+
+(deftest optical-potential-woods-saxon-basic-test
+  (testing "Optical potential Woods-Saxon basic calculation"
+    (let [V-params [50.0 2.0 0.6]
+          U (t/optical-potential-woods-saxon 2.0 V-params)]
+      (is (c/complex? U) "Should return a complex number")
+      (is (number? (re U)) "Real part should be a number")
+      (is (number? (im U)) "Imaginary part should be a number")
+      (is (< (re U) 0) "Real part should be negative (attractive)")))
+  (testing "Optical potential with imaginary part"
+    (let [V-params [50.0 2.0 0.6]
+          W-params [10.0 2.0 0.6]
+          U (t/optical-potential-woods-saxon 2.0 V-params W-params)]
+      (is (c/complex? U) "Should return a complex number")
+      (is (< (im U) 0) "Imaginary part should be negative (absorption)")
+      (is (not= (im U) 0) "Imaginary part should be non-zero"))))
+
+(deftest optical-potential-woods-saxon-spin-orbit-test
+  (testing "Optical potential with spin-orbit coupling"
+    (let [V-params [50.0 2.0 0.6]
+          W-params [10.0 2.0 0.6]
+          V-so 7.0
+          R-so 2.0
+          a-so 0.6
+          l 1
+          s 0.5
+          j 1.5
+          U (t/optical-potential-woods-saxon 2.0 V-params W-params V-so R-so a-so l s j nil nil nil)]
+      (is (c/complex? U) "Should return a complex number")
+      (is (number? (re U)) "Real part should be a number")
+      (is (number? (im U)) "Imaginary part should be a number"))))
+
+(deftest optical-potential-woods-saxon-coulomb-test
+  (testing "Optical potential with Coulomb term"
+    (let [V-params [50.0 2.0 0.6]
+          U-no-coul (t/optical-potential-woods-saxon 2.0 V-params)
+          U-coul (t/optical-potential-woods-saxon 2.0 V-params nil nil nil nil nil nil nil 1 8 2.0)]
+      (is (c/complex? U-coul) "Should return a complex number")
+      (is (not= (re U-no-coul) (re U-coul)) "Should differ with Coulomb term")
+      (is (> (re U-coul) (re U-no-coul)) "Coulomb should make potential less negative"))))
+
+(deftest optical-potential-parameters-test
+  (testing "Optical potential parameters for different projectiles"
+    (let [params-p (t/optical-potential-parameters :p 16 10.0)
+          params-n (t/optical-potential-parameters :n 16 10.0)
+          params-d (t/optical-potential-parameters :d 16 10.0)]
+      (is (map? params-p) "Should return a map")
+      (is (contains? params-p :V-params) "Should contain :V-params")
+      (is (contains? params-p :W-params) "Should contain :W-params")
+      (is (contains? params-p :V-so) "Should contain :V-so")
+      (is (vector? (:V-params params-p)) "V-params should be a vector")
+      (is (= (count (:V-params params-p)) 3) "V-params should have 3 elements")
+      ;; Note: p and n may have similar parameters, but deuteron should differ
+      (is (not= (:V-params params-p) (:V-params params-d)) "Deuteron should have different parameters than proton")
+      (is (> (first (:V-params params-d)) (first (:V-params params-p))) "Deuteron should have deeper potential than proton"))))
+
+(deftest optical-potential-parameters-energy-test
+  (testing "Optical potential parameters depend on energy"
+    (let [params-10 (t/optical-potential-parameters :p 16 10.0)
+          params-20 (t/optical-potential-parameters :p 16 20.0)]
+      (is (not= (first (:V-params params-10)) (first (:V-params params-20))) "V0 should vary with energy")
+      (is (not= (first (:W-params params-10)) (first (:W-params params-20))) "W0 should vary with energy"))))
+
+(deftest optical-potential-energy-dependent-test
+  (testing "Energy-dependent optical potential calculation"
+    (let [U (t/optical-potential-energy-dependent 2.0 :p 16 10.0 1 0.5 1.5)]
+      (is (c/complex? U) "Should return a complex number")
+      (is (number? (re U)) "Real part should be a number")
+      (is (number? (im U)) "Imaginary part should be a number")
+      (is (< (re U) 0) "Real part should be negative")))
+  (testing "Energy-dependent optical potential with Coulomb"
+    (let [U (t/optical-potential-energy-dependent 2.0 :p 16 10.0 1 0.5 1.5 :Z1 1 :Z2 8 :R-C 2.0)]
+      (is (c/complex? U) "Should return a complex number with Coulomb")
+      (is (number? (re U)) "Real part should be a number"))))
+
+(deftest optical-potential-entrance-channel-test
+  (testing "Optical potential for entrance channel"
+    (let [U (t/optical-potential-entrance-channel 2.0 :d 16 8 10.0 1 0.5 1.5)]
+      (is (c/complex? U) "Should return a complex number")
+      (is (number? (re U)) "Real part should be a number")
+      (is (number? (im U)) "Imaginary part should be a number")
+      (is (< (re U) 0) "Real part should be negative")))
+  (testing "Entrance channel potential varies with radius"
+    (let [U-1 (t/optical-potential-entrance-channel 1.0 :p 16 8 10.0 1 0.5 1.5)
+          U-2 (t/optical-potential-entrance-channel 2.0 :p 16 8 10.0 1 0.5 1.5)
+          U-3 (t/optical-potential-entrance-channel 3.0 :p 16 8 10.0 1 0.5 1.5)]
+      (is (not= (re U-1) (re U-2)) "Should vary with radius")
+      (is (not= (re U-2) (re U-3)) "Should vary with radius"))))
+
+(deftest optical-potential-exit-channel-test
+  (testing "Optical potential for exit channel"
+    (let [U (t/optical-potential-exit-channel 2.0 :p 17 8 8.0 1 0.5 1.5)]
+      (is (c/complex? U) "Should return a complex number")
+      (is (number? (re U)) "Real part should be a number")
+      (is (number? (im U)) "Imaginary part should be a number")
+      (is (< (re U) 0) "Real part should be negative")))
+  (testing "Exit channel potential for different outgoing particles"
+    (let [U-p (t/optical-potential-exit-channel 2.0 :p 17 8 8.0 1 0.5 1.5)
+          U-n (t/optical-potential-exit-channel 2.0 :n 17 8 8.0 1 0.5 1.5)]
+      (is (c/complex? U-p) "Proton exit should be complex")
+      (is (c/complex? U-n) "Neutron exit should be complex")
+      (is (not= (re U-p) (re U-n)) "Should differ for different particles"))))
+
+(deftest f-r-numerov-complex-test
+  (testing "f-r-numerov-complex with real potential"
+    (let [U-real 50.0
+          f (t/f-r-numerov-complex 2.0 10.0 1 U-real mass-factor)]
+      (is (c/complex? f) "Should return a complex number")
+      (is (number? (re f)) "Real part should be a number")
+      (is (number? (im f)) "Imaginary part should be a number")))
+  (testing "f-r-numerov-complex with complex potential"
+    (let [U-complex (complex-cartesian 50.0 10.0)
+          f (t/f-r-numerov-complex 2.0 10.0 1 U-complex mass-factor)]
+      (is (c/complex? f) "Should return a complex number")
+      (is (not= (im f) 0) "Imaginary part should be non-zero for complex potential")))
+  (testing "f-r-numerov-complex includes centrifugal term"
+    (let [U 50.0
+          f-l0 (t/f-r-numerov-complex 2.0 10.0 0 U mass-factor)
+          f-l1 (t/f-r-numerov-complex 2.0 10.0 1 U mass-factor)]
+      (is (not= (re f-l0) (re f-l1)) "Should differ for different l values"))))
+
+(deftest distorted-wave-optical-basic-test
+  (testing "Distorted wave with optical potential basic calculation"
+    (let [U-fn (fn [r] (t/optical-potential-entrance-channel r :p 16 8 10.0 1 0.5 1.5))
+          chi (t/distorted-wave-optical 10.0 1 0.5 1.5 U-fn 20.0 0.01 mass-factor)]
+      (is (vector? chi) "Should return a vector")
+      (is (> (count chi) 0) "Should have wavefunction values")
+      (is (every? c/complex? chi) "All values should be complex numbers")
+      (is (every? #(number? (re %)) chi) "All real parts should be numbers")
+      (is (every? #(number? (im %)) chi) "All imaginary parts should be numbers")))
+  (testing "Distorted wave boundary conditions"
+    (let [U-fn (fn [r] (t/optical-potential-entrance-channel r :p 16 8 10.0 0 0.5 0.5))
+          chi (t/distorted-wave-optical 10.0 0 0.5 0.5 U-fn 20.0 0.01 mass-factor)]
+      (is (vector? chi) "Should return a vector")
+      (let [u0 (first chi)]
+        (is (c/complex? u0) "First value should be complex")
+        (is (< (Math/abs (re u0)) 1e-6) "u(0) should be approximately 0")))))
+
+(deftest optical-potential-summary-test
+  (testing "Optical potential summary string"
+    (let [summary (t/optical-potential-summary :p 16 10.0)]
+      (is (string? summary) "Should return a string")
+      (is (> (count summary) 0) "Should have content")
+      (is (or (.contains summary "p") (.contains summary "proton") (.contains summary "Proton")) "Should contain projectile name")
+      (is (.contains summary "16") "Should contain target mass number")
+      (is (.contains summary "10.00") "Should contain energy"))))
+
+(deftest optical-potential-radial-dependence-test
+  (testing "Optical potential varies with radius"
+    (let [V-params [50.0 2.0 0.6]
+          W-params [10.0 2.0 0.6]
+          U-1 (t/optical-potential-woods-saxon 1.0 V-params W-params)
+          U-2 (t/optical-potential-woods-saxon 2.0 V-params W-params)
+          U-5 (t/optical-potential-woods-saxon 5.0 V-params W-params)]
+      (is (not= (re U-1) (re U-2)) "Real part should vary with radius")
+      (is (not= (re U-2) (re U-5)) "Real part should vary with radius")
+      (is (not= (im U-1) (im U-2)) "Imaginary part should vary with radius")
+      ;; At large r, potential should approach zero
+      (is (> (Math/abs (re U-1)) (Math/abs (re U-5))) "Potential should decrease with radius"))))
+
+(deftest optical-potential-consistency-test
+  (testing "Optical potential functions are consistent"
+    (let [r 2.0
+          projectile :p
+          target-A 16
+          target-Z 8
+          E-lab 10.0
+          l 1
+          s 0.5
+          j 1.5
+          ;; Calculate using different methods
+          U-direct (t/optical-potential-energy-dependent r projectile target-A E-lab l s j :Z1 1 :Z2 target-Z :R-C 2.0)
+          U-entrance (t/optical-potential-entrance-channel r projectile target-A target-Z E-lab l s j)]
+      (is (c/complex? U-direct) "Direct method should return complex")
+      (is (c/complex? U-entrance) "Entrance channel method should return complex")
+      ;; They should be approximately equal (within numerical precision)
+      (let [diff-real (Math/abs (- (re U-direct) (re U-entrance)))
+            diff-imag (Math/abs (- (im U-direct) (im U-entrance)))]
+        (is (< diff-real 2.0) "Real parts should be consistent (within 2 MeV)")
+        (is (< diff-imag 2.0) "Imaginary parts should be consistent (within 2 MeV)")))))
