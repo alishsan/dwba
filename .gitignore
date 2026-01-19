@@ -87,6 +87,11 @@ tmp/
 debug*.clj
 check*.clj
 
+# CPC-related files
+*CPC*
+*cpc*
+*_cpc.*
+
 # Temporary script files
 run_plot.clj
 
