@@ -12,11 +12,11 @@
 (defn complex? [x]
   (and (map? x) (contains? x :real) (contains? x :imag)))
 
-(defn complex-from-cartesian [real imag]
+(defn complex-cartesian [real imag]
   "Create a complex number by specifying cartesian coordinates."
   (->complex-number real imag))
 
-(defn complex-from-polar [argument magnitude]
+(defn complex-polar [argument magnitude]
   "Create a complex number by specifying polar coordinates."
   (->complex-number (* magnitude (Math/cos argument))
                    (* magnitude (Math/sin argument))))
@@ -36,18 +36,18 @@
                   (Math/pow (im this) 2)))))
 
 (defn add2 [x y] "Adds the given complex numbers together."
-  (complex-from-cartesian (+ (re x) (re y))
+  (complex-cartesian (+ (re x) (re y))
                           (+ (im x) (im y))))
 (defn add [x & y] (reduce add2 (cons x y)))
 
 (defn subt2 [x y] "Adds the given complex numbers together."
-  (complex-from-cartesian (- (re x) (re y))
+  (complex-cartesian (- (re x) (re y))
                           (- (im x) (im y))))
 
 (defn subt [x & y] (reduce subt2 (cons x y)))
 
 (defn mul2 [x y] "Multiplies the given complex numbers together."
-  (complex-from-polar (+ (arg x) (arg y))
+  (complex-polar (+ (arg x) (arg y))
                       (* (mag x) (mag y))))
 
 
@@ -55,25 +55,25 @@
   (reduce mul2 (cons x y)))
 
 (defn div [x y] "Multiplies the given complex numbers together."
-  (complex-from-polar (- (arg x) (arg y))
+  (complex-polar (- (arg x) (arg y))
                       (/ (mag x) (mag y))))
 
 (defn cpow [t z] "Complex power of a real number"
-  (complex-from-polar (* (im z) (Math/log t)) (Math/pow t (re z)))
+  (complex-polar (* (im z) (Math/log t)) (Math/pow t (re z)))
   )
 
 (defn npow [z n] "Integer power of a complex number"
-  (complex-from-polar  (* n (arg z)) (Math/pow (mag z) n)) 
+  (complex-polar  (* n (arg z)) (Math/pow (mag z) n)) 
 )
 
 
 (defn exp [z] "Complex exponential"
-  (complex-from-polar  (im z) (Math/exp (re z)))
+  (complex-polar  (im z) (Math/exp (re z)))
   )
 
 
 (defn cpowc [z t] "Complex power of a complex number"
-  (mul (cpow (mag z) t) (exp (mul (complex-from-cartesian 0 (arg z)) t)) )  )
+  (mul (cpow (mag z) t) (exp (mul (complex-cartesian 0 (arg z)) t)) )  )
 
 (extend-type java.lang.Number
   ComplexArithmetic
@@ -86,7 +86,7 @@
   (mag [this]
     this))
 
-(defn complex-conjugate [x] ( complex-from-cartesian (re x )  (* -1 ( im x)) ))
+(defn complex-conjugate [x] ( complex-cartesian (re x )  (* -1 ( im x)) ))
 
 (defn complex-integrate
   "Numerically integrate a complex-valued function f from a to b using n steps.
@@ -103,7 +103,7 @@
          corrected-imag (- imag-part (* 0.5 (+ (im (first f-values)) (im (last f-values)))))
          ;; Multiply by step size and create a complex result
          ]
-     (complex-from-cartesian (* h corrected-real) (* h corrected-imag))))
+     (complex-cartesian (* h corrected-real) (* h corrected-imag))))
 
  ([f z a b n]
    (let [h (/ (- b a) n)                              ;; Step size
@@ -118,7 +118,7 @@
          corrected-imag (- imag-part (* 0.5 (+ (im (first f-values)) (im (last f-values)))))
          ;; Multiply by step size and create a complex result
          ]
-     (complex-from-cartesian (* h corrected-real) (* h corrected-imag))))
+     (complex-cartesian (* h corrected-real) (* h corrected-imag))))
 )
 
 

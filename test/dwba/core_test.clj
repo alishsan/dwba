@@ -5,8 +5,8 @@
 
 (deftest basic-functionality-test
   (testing "Basic complex number operations work"
-    (let [z1 (complex-from-cartesian 1 2)
-          z2 (complex-from-cartesian 3 4)
+    (let [z1 (complex-cartesian 1 2)
+          z2 (complex-cartesian 3 4)
           sum (add z1 z2)]
       (is (= (re sum) 4))
       (is (= (im sum) 6)))))
@@ -27,8 +27,8 @@
 
 (deftest complex-arithmetic-test
   (testing "Complex number arithmetic operations"
-    (let [z1 (complex-from-cartesian 3 4)
-          z2 (complex-from-polar 0 2)
+    (let [z1 (complex-cartesian 3 4)
+          z2 (complex-polar 0 2)
           product (mul z1 z2)]
       (is (number? (re product)))
       (is (number? (im product))))))

@@ -74,7 +74,7 @@
 
 (defn distorted-wave [k r]
   "Returns the distorted wave function at distance r for wavenumber k."
-  (c/complex-from-polar (* k r) (* k r)))
+  (c/complex-polar (* k r) (* k r)))
 
 
 (defn WS ;  Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0))
@@ -91,7 +91,7 @@
   "Complex Woods-Saxon potential: V(r) = -(V0 + iW0)/(1+exp((r-R0)/a0))"
   (let [real-part (/ (* -1.0 V0) (+ 1.0 (Math/exp (/ (- r R0) a0))))
         imag-part (/ (* -1.0 W0) (+ 1.0 (Math/exp (/ (- r R0) a0))))]
-    (c/complex-from-cartesian real-part imag-part)))
+    (c/complex-cartesian real-part imag-part)))
 
 ;; --- Numerov Integration Functions ---
 
@@ -648,11 +648,11 @@ precision 0.00001]
 ;; Finite-well functions removed - now in dwba.finite-well namespace
 
 (defn hankel0+ [L rho]
-  (c/complex-from-cartesian (g-func L rho ) (f-func L rho))
+  (c/complex-cartesian (g-func L rho ) (f-func L rho))
   )
 
 (defn hankel0- [L rho]
-  (c/complex-from-cartesian (g-func L rho ) (* -1.0 (f-func L rho)))
+  (c/complex-cartesian (g-func L rho ) (* -1.0 (f-func L rho)))
   )
 
 (defn f-func-deriv [^long L ^double rho] 
@@ -669,11 +669,11 @@ precision 0.00001]
 
 
 (defn hankel0+-deriv [L rho]
-  (c/complex-from-cartesian (g-func-deriv L rho ) (f-func-deriv L rho))
+  (c/complex-cartesian (g-func-deriv L rho ) (f-func-deriv L rho))
   )
 
 (defn hankel0--deriv [L rho]
-  (c/complex-from-cartesian (g-func-deriv L rho ) (* -1.0 (f-func-deriv L rho)))
+  (c/complex-cartesian (g-func-deriv L rho ) (* -1.0 (f-func-deriv L rho)))
   )
 
 
@@ -681,7 +681,7 @@ precision 0.00001]
 (->   (* Math/PI eta -0.5)
 (Math/exp)
 (* (Math/pow 2 L))
-(c/mul (c/mag (c/gamma-complex   (c/complex-from-cartesian (inc L) eta))))
+(c/mul (c/mag (c/gamma-complex   (c/complex-cartesian (inc L) eta))))
 (c/div (m/factorial (inc L)))
 )
 )
@@ -764,35 +764,35 @@ precision 0.00001]
   )
 
 (defn coulomb-F [L eta r]
-(c/mul (CL L eta) (m/pow r (inc L)) (c/complex-from-polar (- r) 1)
-     (hypergeometric-complex-1F1 (c/complex-from-cartesian (inc L) (- eta)) (* 2 (inc L)) (c/complex-from-cartesian 0 (* 2 r) )
+(c/mul (CL L eta) (m/pow r (inc L)) (c/complex-polar (- r) 1)
+     (hypergeometric-complex-1F1 (c/complex-cartesian (inc L) (- eta)) (* 2 (inc L)) (c/complex-cartesian 0 (* 2 r) )
                                  )
      ))
 
 (defn hypergeometric-complex-U
   [a b z]
   (c/div 
-   (apply c/complex-from-cartesian  (hypergeometric-complex-2F0 a ( c/subt  a b -1.)  (c/div -1. z) ))
+   (apply c/complex-cartesian  (hypergeometric-complex-2F0 a ( c/subt  a b -1.)  (c/div -1. z) ))
     (c/cpowc  z a))    
   )
 
 (defn Hankel+ [L, eta, rho]
-  (let [sigmal (c/arg (apply c/complex-from-cartesian (spec/gamma-complex (v/vec2 (inc L) eta))))
+  (let [sigmal (c/arg (apply c/complex-cartesian (spec/gamma-complex (v/vec2 (inc L) eta))))
         theta (+ rho (* L Math/PI -0.5) sigmal (* eta -1.0 (Math/log (* 2 rho))))
-  a (c/complex-from-cartesian (inc L)  eta)
+  a (c/complex-cartesian (inc L)  eta)
         ]
-    (c/mul (c/complex-from-polar theta 1)
-            (c/cpowc (c/complex-from-cartesian 0 (* -2 rho)) a) 
-  ( hypergeometric-complex-U a (* 2 (inc L)) (c/complex-from-cartesian 0 (* -2.0 rho)))
+    (c/mul (c/complex-polar theta 1)
+            (c/cpowc (c/complex-cartesian 0 (* -2 rho)) a) 
+  ( hypergeometric-complex-U a (* 2 (inc L)) (c/complex-cartesian 0 (* -2.0 rho)))
 )))
 
 (defn Hankel- [L, eta, rho]
-   (let [sigmal (c/arg (apply c/complex-from-cartesian (spec/gamma-complex (v/vec2 (inc L) eta))))
+   (let [sigmal (c/arg (apply c/complex-cartesian (spec/gamma-complex (v/vec2 (inc L) eta))))
          theta (+ rho (* L Math/PI -0.5) sigmal (* eta -1.0 (Math/log (* 2 rho))))
-         a (c/complex-from-cartesian (inc L) (* -1.0 eta))]
-     (c/mul (c/complex-from-polar (* -1.0 theta) 1)
-          (c/cpowc (c/complex-from-cartesian 0 (* 2 rho)) a) 
-  ( hypergeometric-complex-U a (* 2 (inc L)) (c/complex-from-cartesian 0 (* 2.0 rho)))
+         a (c/complex-cartesian (inc L) (* -1.0 eta))]
+     (c/mul (c/complex-polar (* -1.0 theta) 1)
+          (c/cpowc (c/complex-cartesian 0 (* 2 rho)) a) 
+  ( hypergeometric-complex-U a (* 2 (inc L)) (c/complex-cartesian 0 (* 2.0 rho)))
 )))
 
 
@@ -875,7 +875,7 @@ precision 0.00001]
 
 (defn ftheta-L [^double E V  ^long L theta]
                 (let [k  (m/sqrt (*  mass-factor E))]
- (c/mul (c/div (c/complex-from-cartesian 0 -1) k) (inc (* 2 L))  (poly/eval-legendre-P L (m/cos theta)) (c/subt  (s-matrix E V L) 1.)
+ (c/mul (c/div (c/complex-cartesian 0 -1) k) (inc (* 2 L))  (poly/eval-legendre-P L (m/cos theta)) (c/subt  (s-matrix E V L) 1.)
                 )))
 
 (defn hypergeometric-complex-U2
@@ -899,7 +899,7 @@ precision 0.00001]
             (let [S-matrix-val (s-matrix E-cm ws-params L)
                   phase-shift-val (phase-shift E-cm ws-params L)
                   ;; Scattering amplitude for this L
-                  f-L (c/mul (c/div (c/complex-from-cartesian 0 -1) k)
+                  f-L (c/mul (c/div (c/complex-cartesian 0 -1) k)
                            (inc (* 2 L))
                            (poly/eval-legendre-P L (m/cos theta-cm))
                            (c/subt S-matrix-val 1.0))]

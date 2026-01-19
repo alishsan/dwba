@@ -36,7 +36,7 @@
             ;; For real wavefunctions, conjugation is identity; for complex, use complex conjugation
             phi-f-conj (if (number? phi-f-val) 
                         phi-f-val 
-                        (complex-from-cartesian (re phi-f-val) (- (im phi-f-val))))]
+                        (complex-cartesian (re phi-f-val) (- (im phi-f-val))))]
         (* phi-f-conj phi-i-val r r))
       0.0)))
 
@@ -151,7 +151,7 @@
                                j0-val (spec/spherical-bessel-j 0 (* q r))
                                phi-f-conj (if (number? phi-f-val)
                                            phi-f-val
-                                           (complex-from-cartesian (re phi-f-val) (- (im phi-f-val))))]
+                                           (complex-cartesian (re phi-f-val) (- (im phi-f-val))))]
                            (* phi-f-conj phi-i-val j0-val r r)))
                        (range n))
         simpson-sum (loop [i 1 sum 0.0]

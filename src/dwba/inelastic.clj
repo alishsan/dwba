@@ -17,7 +17,7 @@
   (:require [functions :refer [WS solve-numerov]]
             [fastmath.core :as m]
             [fastmath.polynomials :as poly]
-            [complex :refer [re im mag complex-from-cartesian complex-from-polar add mul]]
+            [complex :refer [re im mag complex-cartesian complex-polar add mul]]
             [dwba.transfer :as transfer]))
 
 ;; ============================================================================
@@ -545,7 +545,7 @@
                      (* sign-factor x-factor 
                         (poly/eval-legendre-P lambda cos-theta))))
          ;; Exponential factor: exp(iμφ)
-         exp-factor (complex-from-polar 1.0 (* mu phi))]
+         exp-factor (complex-polar 1.0 (* mu phi))]
      (if (and (number? norm-factor) (number? leg-value) (number? exp-factor))
        (* norm-factor leg-value exp-factor)
        (mul norm-factor leg-value exp-factor)))))
@@ -833,16 +833,16 @@
                                            chi-f-val
                                            (let [re-val (re chi-f-val)
                                                  im-val (im chi-f-val)]
-                                             (complex-from-cartesian re-val (- im-val))))
+                                             (complex-cartesian re-val (- im-val))))
                                ;; For complex numbers, need to handle multiplication properly
                                product (if (and (number? chi-i-val) (number? chi-f-conj) (number? V-trans-val))
                                         (* chi-f-conj V-trans-val chi-i-val)
                                         ;; Complex multiplication
                                         (let [chi-i-complex (if (number? chi-i-val)
-                                                            (complex-from-cartesian chi-i-val 0.0)
+                                                            (complex-cartesian chi-i-val 0.0)
                                                             chi-i-val)
                                               V-complex (if (number? V-trans-val)
-                                                        (complex-from-cartesian V-trans-val 0.0)
+                                                        (complex-cartesian V-trans-val 0.0)
                                                         V-trans-val)]
                                           (mul chi-f-conj V-complex chi-i-complex)))]
                            (let [r-squared (* r r)]
@@ -864,19 +864,19 @@
                                          (+ sum term)
                                          (add sum term))
                                        (if (number? term)
-                                         (add sum (complex-from-cartesian term 0.0))
+                                         (add sum (complex-cartesian term 0.0))
                                          (add sum term)))]
                          (recur (inc i) sum-next))))
         first-val (first integrand)
         last-val (last integrand)
         first-complex (if (number? first-val)
-                       (complex-from-cartesian first-val 0.0)
+                       (complex-cartesian first-val 0.0)
                        first-val)
         last-complex (if (number? last-val)
-                      (complex-from-cartesian last-val 0.0)
+                      (complex-cartesian last-val 0.0)
                       last-val)
         sum-complex (if (number? simpson-sum)
-                     (complex-from-cartesian simpson-sum 0.0)
+                     (complex-cartesian simpson-sum 0.0)
                      simpson-sum)
         total-sum (add first-complex last-complex sum-complex)]
     (let [h-factor (/ h 3.0)]
@@ -1447,7 +1447,7 @@
                  amplitude-1
                  (let [re1 (re amplitude-1)
                        im1 (im amplitude-1)]
-                   (complex-from-cartesian re1 (- im1))))
+                   (complex-cartesian re1 (- im1))))
         product (if (and (number? f1-conj) (number? amplitude-2))
                  (* f1-conj amplitude-2)
                  (mul f1-conj amplitude-2))

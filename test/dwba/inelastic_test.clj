@@ -989,7 +989,7 @@
                     (* T-inel 0.5)
                     (let [re-val (re T-inel)
                           im-val (im T-inel)]
-                      (complex/complex-from-cartesian (* re-val 0.5) (* im-val 0.5))))
+                      (complex/complex-cartesian (* re-val 0.5) (* im-val 0.5))))
           amplitudes [T-inel T-inel-2]
           k-i (Math/sqrt (* mass-factor 10.0))
           k-f (Math/sqrt (* mass-factor (- 10.0 4.44)))

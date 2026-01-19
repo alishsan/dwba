@@ -15,7 +15,7 @@
 (require '[functions :refer [mass-factor differential-cross-section total-cross-section s-matrix phase-shift solve-numerov]])
 (require '[fastmath.core :as m])
 (require '[fastmath.polynomials :as poly])
-(require '[complex :refer [mag re im arg add mul div subt complex-from-cartesian]])
+(require '[complex :refer [mag re im arg add mul div subt complex-cartesian]])
 
 ;; ============================================================================
 ;; Reaction Parameters
