@@ -18,8 +18,8 @@
             [fastmath.core :as m]
             [fastmath.polynomials :as poly]
             [complex :refer [re im mag complex-cartesian complex-polar add mul]]
-            [dwba.transfer :as transfer]))
-
+            [dwba.transfer :as transfer :refer [spherical-harmonic clebsch-gordan]])
+)
 ;; ============================================================================
 ;; PHASE 1: TRANSITION FORM FACTORS
 ;; ============================================================================
@@ -495,60 +495,6 @@
 ;; PHASE 3: COLLECTIVE MODEL EXCITATIONS
 ;; ============================================================================
 
-(defn spherical-harmonic
-  "Calculate spherical harmonic Y_λμ(θ,φ).
-   
-   Spherical harmonics are defined as:
-   Y_λμ(θ,φ) = N_λμ · P_λ^|μ|(cos θ) · exp(iμφ)
-   
-   where:
-   - N_λμ is the normalization factor
-   - P_λ^|μ| is the associated Legendre polynomial
-   - θ is the polar angle (0 to π)
-   - φ is the azimuthal angle (0 to 2π)
-   
-   Parameters:
-   - lambda: Multipole order (l)
-   - mu: Magnetic quantum number (m, -λ ≤ μ ≤ λ)
-   - theta: Polar angle (radians)
-   - phi: Azimuthal angle (radians, optional, defaults to 0)
-   
-   Returns: Complex number Y_λμ(θ,φ)
-   
-   Note: For inelastic scattering, we often only need the real part or
-   work with specific μ values. This implementation returns the full complex value.
-   
-   Example:
-   (spherical-harmonic 2 0 (/ Math/PI 2) 0)  ; Y_20(π/2, 0)"
-  ([lambda mu theta]
-   (spherical-harmonic lambda mu theta 0.0))
-  ([lambda mu theta phi]
-   (let [cos-theta (m/cos theta)
-         ;; Normalization factor: N_λμ = sqrt((2λ+1)/(4π) · (λ-|μ|)!/(λ+|μ|)!)
-         ;; For simplicity, we'll use a simplified normalization
-         norm-factor (Math/sqrt (/ (* (inc (* 2 lambda)) 
-                                     (m/factorial (- lambda (Math/abs mu))))
-                                  (* 4.0 Math/PI 
-                                     (m/factorial (+ lambda (Math/abs mu))))))
-         ;; Associated Legendre polynomial P_λ^|μ|(cos θ)
-         ;; For μ=0, this is just the Legendre polynomial P_λ(cos θ)
-         ;; For |μ|>0, we use the associated Legendre polynomial
-         leg-value (if (zero? mu)
-                   (poly/eval-legendre-P lambda cos-theta)
-                   ;; For |μ|>0, we approximate using derivative relation
-                   ;; P_λ^μ(x) = (-1)^μ (1-x²)^(μ/2) d^μ/dx^μ P_λ(x)
-                   ;; Simplified: use fastmath's associated Legendre if available
-                   (let [abs-mu (Math/abs mu)
-                         sign-factor (if (even? abs-mu) 1.0 -1.0)
-                         sin-theta (Math/sin theta)
-                         x-factor (m/pow sin-theta abs-mu)]
-                     (* sign-factor x-factor 
-                        (poly/eval-legendre-P lambda cos-theta))))
-         ;; Exponential factor: exp(iμφ)
-         exp-factor (complex-polar 1.0 (* mu phi))]
-     (if (and (number? norm-factor) (number? leg-value) (number? exp-factor))
-       (* norm-factor leg-value exp-factor)
-       (mul norm-factor leg-value exp-factor)))))
 
 (defn deformed-potential
   "Calculate deformed potential V(r,θ,φ) for collective excitations.
@@ -1316,61 +1262,6 @@
 ;; PHASE 6: ANGULAR DISTRIBUTION
 ;; ============================================================================
 
-(defn clebsch-gordan
-  "Calculate Clebsch-Gordan coefficient <j1 m1 j2 m2 | J M>.
-   
-   Clebsch-Gordan coefficients couple two angular momenta:
-   |J M> = Σ_{m1,m2} <j1 m1 j2 m2 | J M> |j1 m1> |j2 m2>
-   
-   Parameters:
-   - j1: First angular momentum (half-integer, e.g., 1/2, 1, 3/2, ...)
-   - m1: First magnetic quantum number (-j1 ≤ m1 ≤ j1)
-   - j2: Second angular momentum
-   - m2: Second magnetic quantum number (-j2 ≤ m2 ≤ j2)
-   - J: Total angular momentum
-   - M: Total magnetic quantum number (M = m1 + m2)
-   
-   Returns: Clebsch-Gordan coefficient (real number)
-   
-   Note: This is a simplified implementation. For production use, consider
-   using a specialized library for more accurate calculations.
-   
-   Example:
-   (clebsch-gordan 1 0 1 0 2 0)  ; <1 0 1 0 | 2 0>"
-  [j1 m1 j2 m2 J M]
-  ;; Check selection rules
-  (if (not= M (+ m1 m2))
-    0.0  ; M must equal m1 + m2
-    (if (or (< J (Math/abs (- j1 j2)))
-            (> J (+ j1 j2)))
-      0.0  ; Triangle inequality: |j1 - j2| ≤ J ≤ j1 + j2
-      ;; Simplified calculation using Wigner 3-j symbol relation
-      ;; CG = (-1)^(j1-j2+M) * sqrt(2J+1) * Wigner3j(j1 j2 J; m1 m2 -M)
-      ;; For now, use a simplified approximation
-      ;; In practice, this should use proper Wigner 3-j symbol calculation
-      (let [sign (if (even? (int (- j1 j2 M))) 1.0 -1.0)
-            sqrt-factor (Math/sqrt (inc (* 2 J)))
-            ;; Simplified: use approximate formula
-            ;; For specific cases, we can calculate exactly
-            approx-value (cond
-                          ;; Special case: J = j1 + j2, M = m1 + m2
-                          (= J (+ j1 j2))
-                          (* sign sqrt-factor 1.0)
-                          ;; Special case: J = |j1 - j2|, M = m1 + m2
-                          (= J (Math/abs (- j1 j2)))
-                          (* sign sqrt-factor 1.0)
-                          ;; General case: use approximate formula
-                          :else
-                          (let [j1-int (int j1)
-                                j2-int (int j2)
-                                J-int (int J)
-                                fact-sum (m/factorial (+ j1-int j2-int J-int))
-                                fact-diff1 (m/factorial (Math/abs (- j1-int j2-int J-int)))
-                                fact-diff2 (m/factorial (Math/abs (- j2-int j1-int J-int)))]
-                            (* sign sqrt-factor 
-                               (Math/sqrt (/ (* (inc (* 2 j1)) (inc (* 2 j2)))
-                                            (* (inc (* 2 J)) fact-sum fact-diff1 fact-diff2))))))]
-        approx-value))))
 
 (defn legendre-expansion
   "Expand a function in Legendre polynomials.

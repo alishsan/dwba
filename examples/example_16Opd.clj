@@ -52,12 +52,12 @@
       ;; ============================================================================
       
       ;; Incident energy (typical for (p,d) reactions: 10-20 MeV)
-      E-lab 15.0  ; Lab frame energy (MeV)
+      E-lab 20.0  ; Lab frame energy (MeV)
       
       ;; Masses (in MeV/c²)
       m-p 938.27      ; Proton mass
       m-16O 14899.0   ; 16O mass (approximate)
-      m-d 1875.6      ; Deuteron mass
+      m-d 1876.136      ; Deuteron mass
       m-15O 13975.0   ; 15O mass (approximate)
       
       ;; Reduced masses
@@ -76,8 +76,10 @@
       ;; where Es-i is the neutron separation energy from 16O (negative, bound)
       ;; and Es-f is the deuteron binding energy (negative, bound)
       ;; For (p,d) pickup: Q = B_n(16O) - B_d = |Es-i| - |Es-f|
-      Q-value (- (Math/abs Es-i) (Math/abs Es-f))  ; Q = |Es-i| - |Es-f| (positive for exothermic)
-      E-CM-f (+ E-CM-i Q-value)  ; Exit CM energy = E_i + Q (Q is positive for exothermic)
+      ;; Note: Q is typically NEGATIVE for pickup reactions (endothermic)
+      ;; The reaction is kinematically allowed if E_CM_i + Q > 0
+      Q-value  (+ m-p m-16O (- m-d) (- m-15O))
+      E-CM-f (+ E-CM-i Q-value)  ; Exit CM energy = E_i + Q (Q can be negative for endothermic reactions)
       
       ;; ============================================================================
       ;; Distorted Waves (with Coulomb potential)
