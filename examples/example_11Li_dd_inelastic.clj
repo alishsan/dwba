@@ -112,7 +112,22 @@
 ;; Entrance channel: elastic scattering (L=0)
 ;; Use E_CM for the calculation
 (def L-i 0)  ; Orbital angular momentum in entrance channel
+
+;; Option 1: Simple real Woods-Saxon potential (current approach)
 (def chi-i (inel/distorted-wave-entrance E-CM L-i V-params h r-max))
+
+;; Option 2: Full optical potential with imaginary, spin-orbit, and Coulomb terms
+;; Uncomment to use optical potentials:
+;; (require '[dwba.transfer :as t])
+;; (def chi-i-optical (inel/distorted-wave-entrance E-CM L-i nil h r-max
+;;                                                  :projectile-type :d
+;;                                                  :target-A 11
+;;                                                  :target-Z 3
+;;                                                  :E-lab E-lab
+;;                                                  :s 1      ; Deuteron spin
+;;                                                  :j 1      ; Total angular momentum
+;;                                                  :mass-factor mass-f))
+;; (def chi-i chi-i-optical)  ; Use optical potential result
 
 (println "Entrance channel:")
 (println (format "  Energy: E_i = %.2f MeV (CM)" E-CM))
@@ -123,7 +138,22 @@
 ;; Exit channel: inelastic scattering (L=0 for monopole)
 ;; Exit energy: E_f = E_i - E_ex
 (def L-f 0)  ; For monopole, L_f = L_i = 0
+
+;; Option 1: Simple real Woods-Saxon potential (current approach)
 (def chi-f (inel/distorted-wave-exit E-CM E-ex L-f V-params h r-max))
+
+;; Option 2: Full optical potential with imaginary, spin-orbit, and Coulomb terms
+;; Uncomment to use optical potentials:
+;; (def E-f-lab (- E-lab E-ex))  ; Lab energy in exit channel
+;; (def chi-f-optical (inel/distorted-wave-exit E-CM E-ex L-f nil h r-max
+;;                                             :outgoing-type :d
+;;                                             :residual-A 11
+;;                                             :residual-Z 3
+;;                                             :E-lab E-f-lab
+;;                                             :s 1      ; Deuteron spin
+;;                                             :j 1      ; Total angular momentum
+;;                                             :mass-factor mass-f))
+;; (def chi-f chi-f-optical)  ; Use optical potential result
 
 (println "Exit channel:")
 (println (format "  Energy: E_f = E_i - E_ex = %.2f MeV (CM)" (- E-CM E-ex)))

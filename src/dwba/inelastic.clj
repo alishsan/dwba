@@ -720,20 +720,61 @@
    The distorted wave χ_i is the solution to the scattering problem
    in the entrance channel with incident energy E_i.
    
+   This function supports both simple real Woods-Saxon potentials and
+   full optical potentials (with imaginary, spin-orbit, and Coulomb terms).
+   
    Parameters:
    - E-i: Incident energy in entrance channel (MeV)
    - L-i: Orbital angular momentum in entrance channel
-   - V-params: Woods-Saxon parameters [V0, R0, a0] for entrance channel
+   - V-params: Either:
+     - Simple: [V0, R0, a0] for real Woods-Saxon potential
+     - Or: Map with optical potential parameters (see below)
    - h: Step size (fm)
    - r-max: Maximum radius (fm)
+   - Optional keyword arguments:
+     - :optical-potential-fn - Function r → U(r) for full optical potential
+     - :projectile-type - Projectile type (:p, :n, :d, :alpha) for optical potential
+     - :target-A - Target mass number for optical potential
+     - :target-Z - Target charge number for optical potential
+     - :E-lab - Lab energy (MeV) for optical potential
+     - :s - Spin (default: 0.5 for nucleons, 1 for deuterons)
+     - :j - Total angular momentum (default: L + s)
+     - :mass-factor - Mass factor (2μ/ħ²), defaults to functions/mass-factor
    
    Returns: Vector of distorted wave values χ_i(r) at each radial point
    
-   Example:
-   (distorted-wave-entrance 10.0 0 [50.0 2.0 0.6] 0.01 20.0)"
-  [E-i L-i V-params h r-max]
-  (let [[V0 R0 a0] V-params]
-    (solve-numerov E-i L-i V0 R0 a0 h r-max)))
+   Examples:
+   ;; Simple real potential (backward compatible)
+   (distorted-wave-entrance 10.0 0 [50.0 2.0 0.6] 0.01 20.0)
+   
+   ;; Full optical potential
+   (distorted-wave-entrance 10.0 0 nil 0.01 20.0
+                            :projectile-type :d
+                            :target-A 11
+                            :target-Z 3
+                            :E-lab 14.2
+                            :s 1
+                            :j 1)"
+  [E-i L-i V-params h r-max & {:keys [optical-potential-fn projectile-type target-A target-Z E-lab s j mass-factor]
+                               :or {s 0.5}}]
+  (cond
+    ;; Use full optical potential if provided
+    optical-potential-fn
+    (let [j-val (or j (+ L-i s))
+          mf (or mass-factor functions/mass-factor)]
+      (transfer/distorted-wave-optical E-i L-i s j-val optical-potential-fn r-max h mf))
+    
+    ;; Use optical potential from parameters
+    (and projectile-type target-A target-Z E-lab)
+    (let [j-val (or j (+ L-i s))
+          mf (or mass-factor functions/mass-factor)
+          U-fn (fn [r] (transfer/optical-potential-entrance-channel r projectile-type target-A target-Z E-lab L-i s j-val))]
+      (transfer/distorted-wave-optical E-i L-i s j-val U-fn r-max h mf))
+    
+    ;; Fall back to simple real potential (backward compatible)
+    :else
+    (let [[V0 R0 a0] V-params]
+      (solve-numerov E-i L-i V0 R0 a0 h r-max))))
 
 (defn distorted-wave-exit
   "Calculate distorted wave for exit channel (inelastic scattering).
@@ -741,22 +782,63 @@
    The distorted wave χ_f is the solution to the scattering problem
    in the exit channel with energy E_f = E_i - E_ex.
    
+   This function supports both simple real Woods-Saxon potentials and
+   full optical potentials (with imaginary, spin-orbit, and Coulomb terms).
+   
    Parameters:
    - E-i: Incident energy (MeV)
    - E-ex: Excitation energy (MeV)
    - L-f: Orbital angular momentum in exit channel
-   - V-params: Woods-Saxon parameters [V0, R0, a0] for exit channel
+   - V-params: Either:
+     - Simple: [V0, R0, a0] for real Woods-Saxon potential
+     - Or: Map with optical potential parameters (see below)
    - h: Step size (fm)
    - r-max: Maximum radius (fm)
+   - Optional keyword arguments:
+     - :optical-potential-fn - Function r → U(r) for full optical potential
+     - :outgoing-type - Outgoing particle type (:p, :n, :d, :alpha) for optical potential
+     - :residual-A - Residual nucleus mass number for optical potential
+     - :residual-Z - Residual nucleus charge number for optical potential
+     - :E-lab - Lab energy in exit channel (MeV) for optical potential
+     - :s - Spin (default: 0.5 for nucleons, 1 for deuterons)
+     - :j - Total angular momentum (default: L + s)
+     - :mass-factor - Mass factor (2μ/ħ²), defaults to functions/mass-factor
    
    Returns: Vector of distorted wave values χ_f(r) at each radial point
    
-   Example:
-   (distorted-wave-exit 10.0 4.44 2 [50.0 2.0 0.6] 0.01 20.0)"
-  [E-i E-ex L-f V-params h r-max]
-  (let [E-f (- E-i E-ex)
-        [V0 R0 a0] V-params]
-    (solve-numerov E-f L-f V0 R0 a0 h r-max)))
+   Examples:
+   ;; Simple real potential (backward compatible)
+   (distorted-wave-exit 10.0 4.44 2 [50.0 2.0 0.6] 0.01 20.0)
+   
+   ;; Full optical potential
+   (distorted-wave-exit 10.0 4.44 2 nil 0.01 20.0
+                        :outgoing-type :d
+                        :residual-A 11
+                        :residual-Z 3
+                        :E-lab 9.91
+                        :s 1
+                        :j 2)"
+  [E-i E-ex L-f V-params h r-max & {:keys [optical-potential-fn outgoing-type residual-A residual-Z E-lab s j mass-factor]
+                                    :or {s 0.5}}]
+  (let [E-f (- E-i E-ex)]
+    (cond
+      ;; Use full optical potential if provided
+      optical-potential-fn
+      (let [j-val (or j (+ L-f s))
+            mf (or mass-factor functions/mass-factor)]
+        (transfer/distorted-wave-optical E-f L-f s j-val optical-potential-fn r-max h mf))
+      
+      ;; Use optical potential from parameters
+      (and outgoing-type residual-A residual-Z E-lab)
+      (let [j-val (or j (+ L-f s))
+            mf (or mass-factor functions/mass-factor)
+            U-fn (fn [r] (transfer/optical-potential-exit-channel r outgoing-type residual-A residual-Z E-lab L-f s j-val))]
+        (transfer/distorted-wave-optical E-f L-f s j-val U-fn r-max h mf))
+      
+      ;; Fall back to simple real potential (backward compatible)
+      :else
+      (let [[V0 R0 a0] V-params]
+        (solve-numerov E-f L-f V0 R0 a0 h r-max)))))
 
 (defn transition-potential-radial
   "Calculate transition potential at radial distance r.

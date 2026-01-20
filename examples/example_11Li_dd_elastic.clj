@@ -73,6 +73,16 @@
 ;;
 ;; The calculation will use the global values, which may not be correct.
 ;; Results should be interpreted with this limitation in mind.
+;;
+;; OPTICAL POTENTIAL SUPPORT:
+;; For more realistic elastic scattering calculations with optical potentials
+;; (including imaginary, spin-orbit, and Coulomb terms), you can use the
+;; optical potential functions from dwba.transfer. However, the current
+;; S-matrix calculation in functions.clj uses real potentials only.
+;; To use optical potentials, you would need to:
+;; 1. Calculate distorted waves using dwba.transfer/distorted-wave-optical
+;; 2. Extract S-matrix from the asymptotic behavior of the distorted waves
+;; This is more complex and requires modifying the S-matrix extraction.
 
 ;; ============================================================================
 ;; S-Matrix and Phase Shifts
