@@ -1022,12 +1022,9 @@
                                chi-f-val (get chi-f i)
                                phi-i-val (get phi-i i)
                                phi-f-val (get phi-f i)
-                               chi-f-conj (if (number? chi-f-val)
-                                           chi-f-val
-                                           (complex-cartesian (re chi-f-val) (- (im chi-f-val))))
-                               phi-f-conj (if (number? phi-f-val)
-                                           phi-f-val
-                                           (complex-cartesian (re phi-f-val) (- (im phi-f-val))))
+                               ;; Compute conjugates (complex-conjugate works for both real and complex)
+                               chi-f-conj (complex-conjugate chi-f-val)
+                               phi-f-conj (complex-conjugate phi-f-val)
                                ;; Transfer interaction
                                V-transfer (case interaction-type
                                             :zero-range (let [D0 (if (map? interaction-params)
@@ -1044,20 +1041,24 @@
                                                                                      (:form-factor params :yukawa)
                                                                                      (:range-param params 0.7)))
                                             (throw (IllegalArgumentException. 
-                                                    (format "Unknown interaction type: %s" interaction-type))))]
-                           (* chi-f-conj V-transfer phi-f-conj phi-i-val chi-i-val r r)))
+                                                    (format "Unknown interaction type: %s" interaction-type))))
+                               r-squared (* r r)]
+                           ;; Use complex multiplication: χ*_f · V · φ*_f · φ_i · χ_i · r²
+                           (mul chi-f-conj V-transfer phi-f-conj phi-i-val chi-i-val r-squared)))
                        (range n))
-        ;; Simpson's rule integration
-        simpson-sum (loop [i 1 sum 0.0]
+        ;; Simpson's rule integration with complex numbers
+        simpson-sum (loop [i 1 sum (complex-cartesian 0.0 0.0)]
                      (if (>= i (dec n))
                        sum
                        (let [coeff (if (odd? i) 4.0 2.0)
-                             term (* coeff (get integrand i))]
-                         (recur (inc i) (+ sum term)))))
-        integral (* (/ h 3.0)
-                   (+ (first integrand)
-                      (last integrand)
-                      simpson-sum))]
+                             term-val (get integrand i)
+                             term (mul coeff term-val)]
+                         (recur (inc i) (add sum term)))))
+        h-over-3 (/ h 3.0)
+        first-term (get integrand 0)
+        last-term (get integrand (dec n))
+        integral (mul h-over-3
+                     (add first-term last-term simpson-sum))]
     integral))
 
 (defn transfer-amplitude-prior
