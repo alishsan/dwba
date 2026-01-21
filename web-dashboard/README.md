@@ -141,15 +141,16 @@ Perform DWBA calculations.
 - **API**: RESTful JSON endpoints
 - **CORS**: Enabled for cross-origin requests
 
-### Frontend (JavaScript)
+### Frontend (ClojureScript)
+- **Language**: ClojureScript (compiled to JavaScript)
 - **UI**: Bootstrap 5 + Font Awesome
 - **Plotting**: Plotly.js for interactive charts
-- **State**: Client-side parameter management
+- **State**: Client-side parameter management with atoms
 - **Responsive**: Mobile-friendly design
 
 ### Data Flow
 ```
-User Input → JavaScript → Clojure API → DWBA Calculations → JSON Response → Plotly.js Visualization
+User Input → ClojureScript → Clojure API → DWBA Calculations → JSON Response → Plotly.js Visualization
 ```
 
 ## Development
@@ -168,6 +169,12 @@ cd dwba/web-dashboard
 # Install dependencies
 lein deps
 
+# Compile ClojureScript (development mode)
+lein cljsbuild once dev
+
+# Or watch for changes (auto-recompile)
+lein cljsbuild auto dev
+
 # Start development server
 lein run
 
@@ -179,10 +186,12 @@ lein repl
 ```
 web-dashboard/
 ├── src/dwba_web/
-│   └── core.clj              # Main server code
+│   └── simple_core.clj       # Main server code
+├── src-cljs/dwba_web/
+│   └── dashboard.cljs        # ClojureScript frontend source
 ├── public/
 │   ├── index.html            # Main HTML page
-│   └── app.js                # Frontend JavaScript
+│   └── app.js                # Compiled ClojureScript (generated)
 ├── project.clj               # Leiningen project file
 └── README.md                 # This file
 ```
@@ -190,14 +199,16 @@ web-dashboard/
 ### Customization
 
 #### Adding New Parameters
-1. Update parameter ranges in `core.clj`
+1. Update parameter ranges in `simple_core.clj`
 2. Add slider controls in `index.html`
-3. Update JavaScript parameter handling in `app.js`
+3. Update ClojureScript parameter handling in `dashboard.cljs`
+4. Recompile: `lein cljsbuild once dev`
 
 #### Adding New Plot Types
-1. Add calculation logic in `core.clj`
+1. Add calculation logic in `simple_core.clj`
 2. Create new tab in `index.html`
-3. Add plotting function in `app.js`
+3. Add plotting function in `dashboard.cljs`
+4. Recompile: `lein cljsbuild once dev`
 
 #### Styling Changes
 - Modify CSS in `index.html` `<style>` section
@@ -214,6 +225,9 @@ lein run
 
 ### Production Deployment
 ```bash
+# Compile ClojureScript for production (optimized)
+lein cljsbuild once prod
+
 # Build JAR
 lein uberjar
 

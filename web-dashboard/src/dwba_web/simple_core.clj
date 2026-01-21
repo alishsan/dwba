@@ -6,8 +6,7 @@
             [ring.util.response :refer [response content-type]]
             [clojure.java.io :as io]
             [functions :as phys]           ;; use core calculations from main project
-            [dwba.inelastic :as inel]      ;; inelastic scattering
-            [dwba.transfer :as trans]       ;; transfer reactions
+            ;; Don't require inelastic/transfer at startup - load lazily when needed
             [complex :as c]                 ;; complex numbers
             [ring.adapter.jetty :as jetty]))
 
@@ -124,9 +123,12 @@
         (let [elastic-data
               (for [E energies
                     theta angles]
-                (let [theta-rad (* theta Math/PI 180.0)
+                (let [theta-rad (* theta (/ Math/PI 180.0))
                       L-max (apply max L-values)
-                      dsigma-complex (phys/differential-cross-section E ws-params theta-rad L-max)
+                      dsigma-fn (resolve 'functions/differential-cross-section)
+                      dsigma-complex (if dsigma-fn
+                                       (dsigma-fn E ws-params theta-rad L-max)
+                                       0.0)
                       dsigma (if (number? dsigma-complex) 
                               dsigma-complex 
                               (c/mag dsigma-complex))]
@@ -148,7 +150,12 @@
   ;; Inelastic scattering endpoint
   (POST "/api/inelastic" req
     (try
-      (let [params (or (:body req) (:params req) {})
+      ;; Lazy load inelastic namespace only when needed
+      (require 'dwba.inelastic :reload)
+      (let [inel (resolve 'dwba.inelastic/distorted-wave-entrance)
+            inel-exit (resolve 'dwba.inelastic/distorted-wave-exit)
+            inel-cross (resolve 'dwba.inelastic/inelastic-cross-section)
+            params (or (:body req) (:params req) {})
             parse-doubles (fn [xs] (mapv #(Double/parseDouble (str %)) xs))
             parse-ints    (fn [xs] (mapv #(Integer/parseInt (str %)) xs))
             energies      (parse-doubles (or (:energies params) []))
@@ -172,9 +179,9 @@
                     L-i L-values]
                 (try
                   (let [_E-f (- E-i E-ex)  ; Exit channel energy (calculated but not directly used)
-                        chi-i (inel/distorted-wave-entrance E-i L-i ws-params h r-max)
-                        chi-f (inel/distorted-wave-exit E-i E-ex L-i ws-params h r-max)
-                        dsigma (inel/inelastic-cross-section chi-i chi-f lambda mu beta ws-params E-i E-ex r-max h mass-factor)]
+                        chi-i (inel E-i L-i ws-params h r-max)
+                        chi-f (inel-exit E-i E-ex L-i ws-params h r-max)
+                        dsigma (inel-cross chi-i chi-f lambda mu beta ws-params E-i E-ex r-max h mass-factor)]
                     {:energy E-i
                      :L L-i
                      :excitation_energy E-ex
@@ -201,7 +208,12 @@
   ;; Transfer reaction endpoint
   (POST "/api/transfer" req
     (try
-      (let [params (or (:body req) (:params req) {})
+      ;; Lazy load transfer namespace only when needed
+      (require 'dwba.transfer :reload)
+      (let [zero-range-const (resolve 'dwba.transfer/zero-range-constant)
+            transfer-amp (resolve 'dwba.transfer/transfer-amplitude-zero-range)
+            transfer-dsigma (resolve 'dwba.transfer/transfer-differential-cross-section)
+            params (or (:body req) (:params req) {})
             parse-doubles (fn [xs] (mapv #(Double/parseDouble (str %)) xs))
             parse-ints    (fn [xs] (mapv #(Integer/parseInt (str %)) xs))
             energies      (parse-doubles (or (:energies params) []))
@@ -219,7 +231,7 @@
         (when (or (empty? energies) (empty? L-values))
           (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
         
-        (let [D0 (trans/zero-range-constant reaction-type)
+        (let [D0 (zero-range-const reaction-type)
               transfer-data
               (for [E-i energies
                     L L-values]
@@ -227,8 +239,8 @@
                   (let [E-f-approx (* 0.8 E-i)  ; Approximate exit energy (should be calculated from Q-value)
                         k-i (Math/sqrt (* mass-factor E-i))
                         k-f (Math/sqrt (* mass-factor E-f-approx))
-                        T-amplitude (trans/transfer-amplitude-zero-range overlap-approx D0)
-                        dsigma (trans/transfer-differential-cross-section T-amplitude S-factor k-i k-f mass-factor)]
+                        T-amplitude (transfer-amp overlap-approx D0)
+                        dsigma (transfer-dsigma T-amplitude S-factor k-i k-f mass-factor)]
                     {:energy E-i
                      :L L
                      :differential_cross_section dsigma
