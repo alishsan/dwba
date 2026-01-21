@@ -6,6 +6,9 @@
             [ring.util.response :refer [response content-type]]
             [clojure.java.io :as io]
             [functions :as phys]           ;; use core calculations from main project
+            [dwba.inelastic :as inel]      ;; inelastic scattering
+            [dwba.transfer :as trans]       ;; transfer reactions
+            [complex :as c]                 ;; complex numbers
             [ring.adapter.jetty :as jetty]))
 
 ;; Helper function to serve index.html
@@ -100,6 +103,153 @@
         (response {:success false
                    :error (.getMessage e)}))))
   
+  ;; Elastic scattering endpoint
+  (POST "/api/elastic" req
+    (try
+      (let [params (or (:body req) (:params req) {})
+            parse-doubles (fn [xs] (mapv #(Double/parseDouble (str %)) xs))
+            parse-ints    (fn [xs] (mapv #(Integer/parseInt (str %)) xs))
+            energies      (parse-doubles (or (:energies params) []))
+            L-values      (parse-ints (or (:L_values params) []))
+            ws-params     [(Double/parseDouble (str (:V0 params)))
+                           (Double/parseDouble (str (:R0 params)))
+                           (Double/parseDouble (str (:a0 params)))]
+            radius        (Double/parseDouble (str (:radius params)))
+            angles        (or (parse-doubles (or (:angles params) []))
+                             (range 0.0 181.0 10.0))]  ; Default: 0-180 deg in 10 deg steps
+        
+        (when (or (empty? energies) (empty? L-values))
+          (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
+        
+        (let [elastic-data
+              (for [E energies
+                    theta angles]
+                (let [theta-rad (* theta Math/PI 180.0)
+                      L-max (apply max L-values)
+                      dsigma-complex (phys/differential-cross-section E ws-params theta-rad L-max)
+                      dsigma (if (number? dsigma-complex) 
+                              dsigma-complex 
+                              (c/mag dsigma-complex))]
+                  {:energy E
+                   :angle theta
+                   :differential_cross_section dsigma}))]
+          
+          (response {:success true
+                     :data {:elastic elastic-data
+                            :parameters {:energies energies
+                                         :L_values L-values
+                                         :ws_params ws-params
+                                         :radius radius
+                                         :angles angles}}})))
+      (catch Exception e
+        (response {:success false
+                   :error (.getMessage e)}))))
+  
+  ;; Inelastic scattering endpoint
+  (POST "/api/inelastic" req
+    (try
+      (let [params (or (:body req) (:params req) {})
+            parse-doubles (fn [xs] (mapv #(Double/parseDouble (str %)) xs))
+            parse-ints    (fn [xs] (mapv #(Integer/parseInt (str %)) xs))
+            energies      (parse-doubles (or (:energies params) []))
+            L-values      (parse-ints (or (:L_values params) []))
+            ws-params     [(Double/parseDouble (str (:V0 params)))
+                           (Double/parseDouble (str (:R0 params)))
+                           (Double/parseDouble (str (:a0 params)))]
+            E-ex          (Double/parseDouble (str (:E_ex params)))
+            lambda        (Integer/parseInt (str (:lambda params)))
+            beta          (Double/parseDouble (str (:beta params)))
+            h             0.01  ; Fixed step size
+            r-max         20.0  ; Fixed max radius
+            mu            0     ; Magnetic quantum number (default 0)
+            mass-factor   phys/mass-factor]
+        
+        (when (or (empty? energies) (empty? L-values))
+          (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
+        
+        (let [inelastic-data
+              (for [E-i energies
+                    L-i L-values]
+                (try
+                  (let [_E-f (- E-i E-ex)  ; Exit channel energy (calculated but not directly used)
+                        chi-i (inel/distorted-wave-entrance E-i L-i ws-params h r-max)
+                        chi-f (inel/distorted-wave-exit E-i E-ex L-i ws-params h r-max)
+                        dsigma (inel/inelastic-cross-section chi-i chi-f lambda mu beta ws-params E-i E-ex r-max h mass-factor)]
+                    {:energy E-i
+                     :L L-i
+                     :excitation_energy E-ex
+                     :differential_cross_section dsigma})
+                  (catch Exception e
+                    {:energy E-i
+                     :L L-i
+                     :excitation_energy E-ex
+                     :differential_cross_section 0.0
+                     :error (.getMessage e)})))]
+          
+          (response {:success true
+                     :data {:inelastic inelastic-data
+                            :parameters {:energies energies
+                                         :L_values L-values
+                                         :ws_params ws-params
+                                         :E_ex E-ex
+                                         :lambda lambda
+                                         :beta beta}}})))
+      (catch Exception e
+        (response {:success false
+                   :error (.getMessage e)}))))
+  
+  ;; Transfer reaction endpoint
+  (POST "/api/transfer" req
+    (try
+      (let [params (or (:body req) (:params req) {})
+            parse-doubles (fn [xs] (mapv #(Double/parseDouble (str %)) xs))
+            parse-ints    (fn [xs] (mapv #(Integer/parseInt (str %)) xs))
+            energies      (parse-doubles (or (:energies params) []))
+            L-values      (parse-ints (or (:L_values params) []))
+            ws-params     [(Double/parseDouble (str (:V0 params)))
+                           (Double/parseDouble (str (:R0 params)))
+                           (Double/parseDouble (str (:a0 params)))]
+            reaction-type (keyword (str (:reaction_type params)))
+            S-factor      1.0  ; Fixed to 1.0 as requested
+            mass-factor   phys/mass-factor
+            ;; For zero-range, we need overlap integral - use a simple approximation
+            ;; In real calculations, this would come from bound state wavefunctions
+            overlap-approx 1.0]  ; Placeholder - should be calculated from bound states
+        
+        (when (or (empty? energies) (empty? L-values))
+          (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
+        
+        (let [D0 (trans/zero-range-constant reaction-type)
+              transfer-data
+              (for [E-i energies
+                    L L-values]
+                (try
+                  (let [E-f-approx (* 0.8 E-i)  ; Approximate exit energy (should be calculated from Q-value)
+                        k-i (Math/sqrt (* mass-factor E-i))
+                        k-f (Math/sqrt (* mass-factor E-f-approx))
+                        T-amplitude (trans/transfer-amplitude-zero-range overlap-approx D0)
+                        dsigma (trans/transfer-differential-cross-section T-amplitude S-factor k-i k-f mass-factor)]
+                    {:energy E-i
+                     :L L
+                     :differential_cross_section dsigma
+                     :transfer_amplitude (if (number? T-amplitude) T-amplitude (c/mag T-amplitude))})
+                  (catch Exception e
+                    {:energy E-i
+                     :L L
+                     :differential_cross_section 0.0
+                     :error (.getMessage e)})))]
+          
+          (response {:success true
+                     :data {:transfer transfer-data
+                            :parameters {:energies energies
+                                         :L_values L-values
+                                         :ws_params ws-params
+                                         :reaction_type (str reaction-type)
+                                         :S_factor S-factor}}})))
+      (catch Exception e
+        (response {:success false
+                   :error (.getMessage e)}))))
+  
   (GET "/api/parameters" []
     (response {:default_parameters
                {:energies [5.0 10.0 15.0 20.0 25.0 30.0]
@@ -107,12 +257,19 @@
                 :V0 40.0
                 :R0 2.0
                 :a0 0.6
-                :radius 3.0}
+                :radius 3.0
+                :E_ex 4.44
+                :lambda 2
+                :beta 0.25
+                :reaction_type "d-p"}
                :parameter_ranges
                {:V0 {:min -100.0 :max 100.0 :step 1.0}
                 :R0 {:min 0.5 :max 5.0 :step 0.1}
                 :a0 {:min 0.1 :max 2.0 :step 0.1}
-                :radius {:min 1.0 :max 10.0 :step 0.1}}}))
+                :radius {:min 1.0 :max 10.0 :step 0.1}
+                :E_ex {:min 0.0 :max 20.0 :step 0.1}
+                :lambda {:min 1 :max 5 :step 1}
+                :beta {:min 0.0 :max 1.0 :step 0.01}}}))
   
   ;; Fallback for static files
   (route/files "/" {:root "public"})

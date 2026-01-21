@@ -52,6 +52,11 @@ class DWBADashboard {
         document.getElementById('energy-range').value = params.energies.join(',');
         document.getElementById('L-values').value = params.L_values.join(',');
         
+        if (params.E_ex !== undefined) document.getElementById('E_ex').value = params.E_ex;
+        if (params.lambda !== undefined) document.getElementById('lambda').value = params.lambda;
+        if (params.beta !== undefined) document.getElementById('beta').value = params.beta;
+        if (params.reaction_type !== undefined) document.getElementById('reaction_type').value = params.reaction_type;
+        
         // Update slider displays
         document.getElementById('V0-value').textContent = `${params.V0} MeV`;
         document.getElementById('R0-value').textContent = `${params.R0} fm`;
@@ -72,7 +77,11 @@ class DWBADashboard {
             L_values: document.getElementById('L-values').value
                 .split(',')
                 .map(s => s.trim())
-                .filter(s => s.length > 0)
+                .filter(s => s.length > 0),
+            E_ex: parseFloat(document.getElementById('E_ex').value),
+            lambda: parseInt(document.getElementById('lambda').value),
+            beta: parseFloat(document.getElementById('beta').value),
+            reaction_type: document.getElementById('reaction_type').value
         };
     }
 
@@ -110,24 +119,44 @@ class DWBADashboard {
                 throw new Error('Please provide valid energy range and angular momenta');
             }
 
-            const response = await fetch(`${this.apiBase}/api/calculate`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(params)
-            });
+            // Calculate all reaction types in parallel
+            const [basicResult, elasticResult, inelasticResult, transferResult] = await Promise.all([
+                fetch(`${this.apiBase}/api/calculate`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(params)
+                }).then(r => r.json()),
+                fetch(`${this.apiBase}/api/elastic`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(params)
+                }).then(r => r.json()),
+                fetch(`${this.apiBase}/api/inelastic`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(params)
+                }).then(r => r.json()),
+                fetch(`${this.apiBase}/api/transfer`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(params)
+                }).then(r => r.json())
+            ]);
 
-            const result = await response.json();
             const calculationTime = Date.now() - startTime;
 
-            if (result.success) {
-                this.currentData = result.data;
+            // Combine all results
+            if (basicResult.success) {
+                this.currentData = basicResult.data;
+                if (elasticResult.success) this.currentData.elastic = elasticResult.data.elastic;
+                if (inelasticResult.success) this.currentData.inelastic = inelasticResult.data.inelastic;
+                if (transferResult.success) this.currentData.transfer = transferResult.data.transfer;
+                
                 this.updateAllPlots();
                 this.updateDashboardStats(calculationTime);
                 this.showStatus(`Calculation completed successfully in ${calculationTime}ms`, 'success');
             } else {
-                throw new Error(result.error || 'Calculation failed');
+                throw new Error(basicResult.error || 'Calculation failed');
             }
 
         } catch (error) {
@@ -147,6 +176,9 @@ class DWBADashboard {
         this.plotRMatrices();
         this.plotPotentials();
         this.plotCrossSections();
+        if (this.currentData.elastic) this.plotElastic();
+        if (this.currentData.inelastic) this.plotInelastic();
+        if (this.currentData.transfer) this.plotTransfer();
         this.plotDashboard();
     }
 
@@ -378,6 +410,123 @@ class DWBADashboard {
         };
 
         Plotly.newPlot('dashboard-plot', traces, layout, {responsive: true});
+    }
+
+    plotElastic() {
+        const data = this.currentData.elastic;
+        if (!data || data.length === 0) return;
+
+        const traces = {};
+        
+        // Group by energy
+        data.forEach(point => {
+            const E = point.energy;
+            if (!traces[E]) {
+                traces[E] = {
+                    x: [],
+                    y: [],
+                    name: `E = ${E} MeV`,
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    line: { width: 2 },
+                    marker: { size: 4 }
+                };
+            }
+            traces[E].x.push(point.angle);
+            traces[E].y.push(point.differential_cross_section);
+        });
+
+        const plotData = Object.values(traces);
+        const layout = {
+            title: 'Elastic Scattering Differential Cross-Section',
+            xaxis: { title: 'Scattering Angle (degrees)', gridcolor: '#e0e0e0' },
+            yaxis: { title: 'dσ/dΩ (fm²/sr)', type: 'log', gridcolor: '#e0e0e0' },
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            font: { family: 'Arial, sans-serif' },
+            legend: { x: 0.02, y: 0.98 },
+            margin: { t: 50, b: 50, l: 60, r: 30 }
+        };
+
+        Plotly.newPlot('elastic-plot', plotData, layout, {responsive: true});
+    }
+
+    plotInelastic() {
+        const data = this.currentData.inelastic;
+        if (!data || data.length === 0) return;
+
+        const traces = {};
+        
+        // Group by L
+        data.forEach(point => {
+            const L = point.L;
+            if (!traces[L]) {
+                traces[L] = {
+                    x: [],
+                    y: [],
+                    name: `L = ${L}`,
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    line: { width: 3 },
+                    marker: { size: 6 }
+                };
+            }
+            traces[L].x.push(point.energy);
+            traces[L].y.push(point.differential_cross_section);
+        });
+
+        const plotData = Object.values(traces);
+        const layout = {
+            title: 'Inelastic Scattering Differential Cross-Section',
+            xaxis: { title: 'Energy (MeV)', gridcolor: '#e0e0e0' },
+            yaxis: { title: 'dσ/dΩ (fm²/sr)', type: 'log', gridcolor: '#e0e0e0' },
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            font: { family: 'Arial, sans-serif' },
+            legend: { x: 0.02, y: 0.98 },
+            margin: { t: 50, b: 50, l: 60, r: 30 }
+        };
+
+        Plotly.newPlot('inelastic-plot', plotData, layout, {responsive: true});
+    }
+
+    plotTransfer() {
+        const data = this.currentData.transfer;
+        if (!data || data.length === 0) return;
+
+        const traces = {};
+        
+        // Group by L
+        data.forEach(point => {
+            const L = point.L;
+            if (!traces[L]) {
+                traces[L] = {
+                    x: [],
+                    y: [],
+                    name: `L = ${L}`,
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    line: { width: 3 },
+                    marker: { size: 6 }
+                };
+            }
+            traces[L].x.push(point.energy);
+            traces[L].y.push(point.differential_cross_section);
+        });
+
+        const plotData = Object.values(traces);
+        const layout = {
+            title: 'Transfer Reaction Differential Cross-Section',
+            xaxis: { title: 'Energy (MeV)', gridcolor: '#e0e0e0' },
+            yaxis: { title: 'dσ/dΩ (fm²/sr)', type: 'log', gridcolor: '#e0e0e0' },
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            font: { family: 'Arial, sans-serif' },
+            legend: { x: 0.02, y: 0.98 },
+            margin: { t: 50, b: 50, l: 60, r: 30 }
+        };
+
+        Plotly.newPlot('transfer-plot', plotData, layout, {responsive: true});
     }
 
     updateDashboardStats(calculationTime) {

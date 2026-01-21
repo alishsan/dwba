@@ -213,6 +213,52 @@
                         </div>
                     </div>
                 </div>
+                
+                <!-- Inelastic Scattering Parameters -->
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <h5 class="mb-3"><i class="fas fa-exchange-alt"></i> Inelastic Scattering Parameters</h5>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="parameter-group">
+                            <label for="E_ex">Excitation Energy E_ex (MeV)</label>
+                            <input type="number" class="form-control" id="E_ex" value="4.44" step="0.1" min="0">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="parameter-group">
+                            <label for="lambda">Multipole Order λ</label>
+                            <input type="number" class="form-control" id="lambda" value="2" step="1" min="1" max="5">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="parameter-group">
+                            <label for="beta">Deformation Parameter β</label>
+                            <input type="number" class="form-control" id="beta" value="0.25" step="0.01" min="0" max="1">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Transfer Reaction Parameters -->
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <h5 class="mb-3"><i class="fas fa-arrows-alt"></i> Transfer Reaction Parameters</h5>
+                    </div>
+                    <div class="col-md-12">
+                        <div class="parameter-group">
+                            <label for="reaction_type">Reaction Type</label>
+                            <select class="form-select" id="reaction_type">
+                                <option value="d-p">(d,p) - Neutron Transfer</option>
+                                <option value="d-n">(d,n) - Proton Transfer</option>
+                                <option value="p-d">(p,d) - Neutron Pickup</option>
+                                <option value="n-d">(n,d) - Proton Pickup</option>
+                                <option value="alpha-t">(α,t) - Proton Transfer</option>
+                                <option value="alpha-he3">(α,³He) - Neutron Transfer</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
                 <div class="text-center mt-4">
                     <button class="btn btn-calculate" id="calculate-btn" onclick="calculateDWBA()">
                         <i class="fas fa-calculator"></i> Calculate DWBA
@@ -246,6 +292,21 @@
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="cross-section-tab" data-bs-toggle="tab" data-bs-target="#cross-section-panel" type="button">
                         <i class="fas fa-crosshairs"></i> Cross-Sections
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="elastic-tab" data-bs-toggle="tab" data-bs-target="#elastic-panel" type="button">
+                        <i class="fas fa-bullseye"></i> Elastic
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="inelastic-tab" data-bs-toggle="tab" data-bs-target="#inelastic-panel" type="button">
+                        <i class="fas fa-exchange-alt"></i> Inelastic
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="transfer-tab" data-bs-toggle="tab" data-bs-target="#transfer-panel" type="button">
+                        <i class="fas fa-arrows-alt"></i> Transfer
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
@@ -285,6 +346,30 @@
                     <div class="plot-container">
                         <div class="plot-title">Total Cross-Sections vs Energy</div>
                         <div id="cross-section-plot" style="height: 500px;"></div>
+                    </div>
+                </div>
+
+                <!-- Elastic Scattering Panel -->
+                <div class="tab-pane fade" id="elastic-panel" role="tabpanel">
+                    <div class="plot-container">
+                        <div class="plot-title">Elastic Scattering Differential Cross-Section</div>
+                        <div id="elastic-plot" style="height: 500px;"></div>
+                    </div>
+                </div>
+
+                <!-- Inelastic Scattering Panel -->
+                <div class="tab-pane fade" id="inelastic-panel" role="tabpanel">
+                    <div class="plot-container">
+                        <div class="plot-title">Inelastic Scattering Differential Cross-Section</div>
+                        <div id="inelastic-plot" style="height: 500px;"></div>
+                    </div>
+                </div>
+
+                <!-- Transfer Reaction Panel -->
+                <div class="tab-pane fade" id="transfer-panel" role="tabpanel">
+                    <div class="plot-container">
+                        <div class="plot-title">Transfer Reaction Differential Cross-Section</div>
+                        <div id="transfer-plot" style="height: 500px;"></div>
                     </div>
                 </div>
 
