@@ -51,6 +51,7 @@ venv.bak/
 # IDE and editor files
 .vscode/
 .idea/
+.calva/
 *.swp
 *.swo
 *~
@@ -118,6 +119,10 @@ coverage.xml
 dmypy.json
 
 # clj-kondo cache files
+.clj-kondo/
 .clj-kondo/.cache/
 *.transit.json
 .lsp/.cache/
+
+# Packaged metadata copied into repo by mistake
+META-INF/
