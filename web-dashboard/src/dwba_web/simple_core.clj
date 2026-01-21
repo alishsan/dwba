@@ -4,11 +4,8 @@
             [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
             [ring.middleware.cors :refer [wrap-cors]]
             [ring.util.response :refer [response content-type]]
-            [clojure.data.json :as json]
             [clojure.java.io :as io]
-            [clojure.string :as str]
-            [ring.adapter.jetty :as jetty])
-  (:import [java.io File]))
+            [ring.adapter.jetty :as jetty]))
 
 ;; Simple DWBA calculation functions (self-contained)
 (def hbarc 197.7)
@@ -54,68 +51,94 @@
         phase-shift (Math/atan (/ R-nuclear 1.0))]
     phase-shift))
 
+;; Helper function to serve index.html
+(defn serve-index []
+  (let [resource (or (io/resource "index.html")
+                     (io/resource "public/index.html"))
+        ;; Try multiple file paths depending on working directory
+        file-paths ["public/index.html"
+                    "web-dashboard/public/index.html"
+                    (str (System/getProperty "user.dir") "/public/index.html")
+                    (str (System/getProperty "user.dir") "/web-dashboard/public/index.html")]
+        file (some #(let [f (io/file %)] (when (.exists f) f)) file-paths)]
+    (cond
+      resource
+      (-> resource
+          (io/input-stream)
+          (response)
+          (content-type "text/html"))
+      file
+      (-> file
+          (io/input-stream)
+          (response)
+          (content-type "text/html"))
+      :else
+      {:status 404 
+       :body (str "index.html not found. Tried: " (pr-str file-paths))})))
+
 ;; Web routes
 (defroutes app-routes
   ;; Serve static files
-  (GET "/" [] (-> (io/resource "public/index.html")
-                  (io/input-stream)
-                  (response)
-                  (content-type "text/html")))
+  (GET "/" [] (serve-index))
   
   ;; API endpoints
   (GET "/api/health" [] 
     (response {:status "ok" :message "DWBA Web Dashboard API"}))
   
-  (POST "/api/calculate" [params]
+  (POST "/api/calculate" req
     (try
-      (let [energies (mapv #(Double/parseDouble %) (:energies params))
-            L-values (mapv #(Integer/parseInt %) (:L_values params))
-            ws-params [(Double/parseDouble (:V0 params))
-                       (Double/parseDouble (:R0 params))
-                       (Double/parseDouble (:a0 params))]
-            radius (Double/parseDouble (:radius params))]
+      ;; Prefer parsed JSON body (from wrap-json-body), fall back to params map
+      (let [params (or (:body req) (:params req) {})
+            parse-doubles (fn [xs] (mapv #(Double/parseDouble (str %)) xs))
+            parse-ints    (fn [xs] (mapv #(Integer/parseInt (str %)) xs))
+            energies      (parse-doubles (or (:energies params) []))
+            L-values      (parse-ints (or (:L_values params) []))
+            ws-params     [(Double/parseDouble (str (:V0 params)))
+                           (Double/parseDouble (str (:R0 params)))
+                           (Double/parseDouble (str (:a0 params)))]
+            radius        (Double/parseDouble (str (:radius params)))]
         
-        ;; Calculate phase shifts
-        (def phase-shift-data
-          (for [E energies
-                L L-values]
-            {:energy E 
-             :L L 
-             :phase_shift (nuclear-phase-shift E ws-params radius L)}))
+        (when (or (empty? energies) (empty? L-values))
+          (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
         
-        ;; Calculate R-matrices
-        (def r-matrix-data
-          (for [E energies
-                L L-values]
-            {:energy E 
-             :L L 
-             :r_nuclear (r-matrix-nuclear-only E ws-params radius L)
-             :r_coulomb_nuclear (r-matrix-coulomb-nuclear E ws-params radius L)}))
-        
-        ;; Calculate potentials
-        (def potential-data
-          (let [radii (range 0.1 10.0 0.1)]
-            (for [r radii]
-              {:radius r 
-               :woods_saxon (WS r ws-params)
-               :coulomb (Coulomb-pot r (second ws-params))
-               :combined (+ (WS r ws-params) (Coulomb-pot r (second ws-params)))})))
-        
-        ;; Calculate cross-sections
-        (def cross-section-data
-          (for [E energies]
-            {:energy E 
-             :total_cross_section (reduce + (map #(Math/pow (Math/sin (nuclear-phase-shift E ws-params radius %)) 2) L-values))}))
-        
-        (response {:success true
-                   :data {:phase_shifts phase-shift-data
-                          :r_matrices r-matrix-data
-                          :potentials potential-data
-                          :cross_sections cross-section-data
-                          :parameters {:energies energies
-                                       :L_values L-values
-                                       :ws_params ws-params
-                                       :radius radius}}}))
+        ;; Calculate datasets (avoid inline defs)
+        (let [phase-shift-data
+              (for [E energies
+                    L L-values]
+                {:energy E 
+                 :L L 
+                 :phase_shift (nuclear-phase-shift E ws-params radius L)})
+              
+              r-matrix-data
+              (for [E energies
+                    L L-values]
+                {:energy E 
+                 :L L 
+                 :r_nuclear (r-matrix-nuclear-only E ws-params radius L)
+                 :r_coulomb_nuclear (r-matrix-coulomb-nuclear E ws-params radius L)})
+              
+              potential-data
+              (let [radii (range 0.1 10.0 0.1)]
+                (for [r radii]
+                  {:radius r 
+                   :woods_saxon (WS r ws-params)
+                   :coulomb (Coulomb-pot r (second ws-params))
+                   :combined (+ (WS r ws-params) (Coulomb-pot r (second ws-params)))}))
+              
+              cross-section-data
+              (for [E energies]
+                {:energy E 
+                 :total_cross_section (reduce + (map #(Math/pow (Math/sin (nuclear-phase-shift E ws-params radius %)) 2) L-values))})]
+          
+          (response {:success true
+                     :data {:phase_shifts phase-shift-data
+                            :r_matrices r-matrix-data
+                            :potentials potential-data
+                            :cross_sections cross-section-data
+                            :parameters {:energies energies
+                                         :L_values L-values
+                                         :ws_params ws-params
+                                         :radius radius}}})))
       (catch Exception e
         (response {:success false
                    :error (.getMessage e)}))))
