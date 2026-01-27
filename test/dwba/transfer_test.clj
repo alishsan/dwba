@@ -273,7 +273,7 @@
           S-factor 0.5
           k-i 0.5
           k-f 0.45
-          dsigma (t/transfer-differential-cross-section T-amplitude S-factor k-i k-f mass-factor)]
+          dsigma (t/transfer-differential-cross-section T-amplitude S-factor k-i k-f mass-factor mass-factor)]
       (is (number? dsigma) "Should return a number")
       (is (>= dsigma 0) "Should be non-negative")
       (is (not (Double/isNaN dsigma)) "Should not be NaN")
@@ -283,7 +283,7 @@
           S-factor 0.5
           k-i 0.5
           k-f 0.45
-          dsigma (t/transfer-differential-cross-section T-amplitude S-factor k-i k-f mass-factor)]
+          dsigma (t/transfer-differential-cross-section T-amplitude S-factor k-i k-f mass-factor mass-factor)]
       (is (number? dsigma) "Should handle complex amplitudes")
       (is (>= dsigma 0) "Should be non-negative"))))
 
@@ -293,10 +293,10 @@
           S-factor 0.5
           k-i-1 0.5
           k-f-1 0.45
-          dsigma-1 (t/transfer-differential-cross-section T-amplitude S-factor k-i-1 k-f-1 mass-factor)
+          dsigma-1 (t/transfer-differential-cross-section T-amplitude S-factor k-i-1 k-f-1 mass-factor mass-factor)
           k-i-2 0.6
           k-f-2 0.5
-          dsigma-2 (t/transfer-differential-cross-section T-amplitude S-factor k-i-2 k-f-2 mass-factor)]
+          dsigma-2 (t/transfer-differential-cross-section T-amplitude S-factor k-i-2 k-f-2 mass-factor mass-factor)]
       (is (not= dsigma-1 dsigma-2) "Should vary with wavenumbers")
       (is (number? dsigma-1) "First result should be a number")
       (is (number? dsigma-2) "Second result should be a number"))))
@@ -307,9 +307,9 @@
           k-i 0.5
           k-f 0.45
           S-1 0.5
-          dsigma-1 (t/transfer-differential-cross-section T-amplitude S-1 k-i k-f mass-factor)
+          dsigma-1 (t/transfer-differential-cross-section T-amplitude S-1 k-i k-f mass-factor mass-factor)
           S-2 1.0
-          dsigma-2 (t/transfer-differential-cross-section T-amplitude S-2 k-i k-f mass-factor)]
+          dsigma-2 (t/transfer-differential-cross-section T-amplitude S-2 k-i k-f mass-factor mass-factor)]
       (is (not= dsigma-1 dsigma-2) "Should vary with spectroscopic factor")
       (is (< dsigma-1 dsigma-2) "Should increase with larger S-factor")
       (is (number? dsigma-1) "First result should be a number")
@@ -442,7 +442,7 @@
           ;; Calculate using basic function with angular distribution
           angular-dist (t/transfer-angular-distribution T-amplitudes theta 0)
           T-effective (Math/sqrt angular-dist)
-          dsigma-basic (t/transfer-differential-cross-section T-effective S-factor k-i k-f mass-factor)]
+          dsigma-basic (t/transfer-differential-cross-section T-effective S-factor k-i k-f mass-factor mass-factor)]
       (is (number? dsigma-angular) "Angular function should return a number")
       (is (number? dsigma-basic) "Basic function should return a number")
       (is (>= dsigma-angular 0) "Angular result should be non-negative")

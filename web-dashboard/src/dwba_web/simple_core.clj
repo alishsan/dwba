@@ -260,7 +260,9 @@
                         k-i (Math/sqrt (* mass-factor E-i))
                         k-f (Math/sqrt (* mass-factor E-f-approx))
                         T-amplitude (transfer-amp overlap-approx D0)
-                        dsigma (transfer-dsigma T-amplitude S-factor k-i k-f mass-factor)]
+                        ;; Use same entrance/exit mass-factor for now (placeholder),
+                        ;; since this endpoint is a schematic transfer demo.
+                        dsigma (transfer-dsigma T-amplitude S-factor k-i k-f mass-factor mass-factor)]
                     {:energy E-i
                      :L L
                      :differential_cross_section dsigma

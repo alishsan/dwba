@@ -6,8 +6,7 @@
 ;; Reaction: 16O(p,d)15O
 ;; - Initial: neutron bound in 16O (l=1, E=-15.67 MeV)
 ;; - Final: neutron bound in deuteron (l=0, E=-2.214 MeV)
-;; - Initial: proton bound in 16O (l=1, E=-15.67 MeV)
-;; - Final: neutron bound in deuteron (l=0, E=-2.214 MeV)
+
 ;;
 ;; Reference parameters:
 ;; - 16O: R0 = 2.7 fm, V0 = 62 MeV, a0 = 0.6 fm, l=1
@@ -55,7 +54,7 @@
       E-lab 20.0  ; Lab frame energy (MeV)
       
       ;; Masses (in MeV/c²)
-      m-p 938.27      ; Proton mass
+      m-p  938.27     ; Proton mass
       m-16O 14899.0   ; 16O mass (approximate)
       m-d 1876.136      ; Deuteron mass
       m-15O 13975.0   ; 15O mass (approximate)
@@ -135,13 +134,13 @@
       S-factor 1.0
       
       ;; Calculate differential cross section
-      dsigma (t/transfer-differential-cross-section T-post S-factor k-i k-f mass-factor-f)]
+      dsigma (t/transfer-differential-cross-section T-post S-factor k-i k-f mass-factor-i mass-factor-f)]
   
   ;; ============================================================================
   ;; Output
   ;; ============================================================================
   
-  (println (format "Initial state (proton in 16O):"))
+  (println (format "Initial state (neutron in 16O):"))
   (println (format "  Energy: E_i = %.2f MeV" Es-i))
   (println (format "  Angular momentum: l_i = %d" l-i))
   (println (format "  Wavefunction length: %d points" (count phi-i)))

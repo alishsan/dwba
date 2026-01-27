@@ -65,7 +65,7 @@
       S-factor 1.0
       
       ;; Calculate differential cross section
-      dsigma (t/transfer-differential-cross-section T-post S-factor k-i k-f mass-factor-f)]
+      dsigma (t/transfer-differential-cross-section T-post S-factor k-i k-f mass-factor-i mass-factor-f)]
   
   (println (format "Initial state (proton in 16O):"))
   (println (format "  Energy: E_i = %.2f MeV" Es-i))

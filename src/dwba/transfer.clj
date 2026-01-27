@@ -8,6 +8,7 @@
             [fastmath.polynomials :as poly]
             [functions :refer :all]
             [dwba.finite-well :refer :all]
+            [dwba.form-factors :as ff]
             [complex :refer :all]))
 
 ;; ============================================================================
@@ -761,6 +762,148 @@
         :h h}))))
 
 ;; ============================================================================
+;; ASYMPTOTIC NORMALIZATION COEFFICIENT (ANC)
+;; ============================================================================
+
+(defn calculate-anc
+  "Calculate Asymptotic Normalization Coefficient (ANC) for a bound state.
+   
+   The ANC is the coefficient in the asymptotic form of the bound state wavefunction:
+   u(r) → C · e^(-κr) / r^l  (for large r)
+   
+   where:
+   - C is the ANC
+   - κ = sqrt(2μ|E|)/ħ is the decay constant
+   - l is the orbital angular momentum
+   
+   The ANC is extracted by fitting the asymptotic tail of the wavefunction.
+   It's useful for:
+   1. Normalizing bound states consistently
+   2. Transfer reaction calculations (often used as D₀ · ANC)
+   3. Connecting to experimental measurements
+   
+   Parameters:
+   - u: Bound state wavefunction (vector)
+   - E: Bound state energy (MeV, negative)
+   - l: Orbital angular momentum
+   - mass-factor: Mass factor (2μ/ħ²) in MeV⁻¹·fm⁻²
+   - h: Step size (fm)
+   - r-fit-min: Minimum radius for fitting (fm, should be outside nuclear potential)
+   - r-fit-max: Maximum radius for fitting (fm)
+   
+   Returns: ANC value C (in fm^(-l-1/2) for normalized u)
+   
+   Example:
+   (let [result (solve-bound-state [50.0 2.0 0.6] 1 0)
+         u (:normalized-wavefunction result)
+         E (:energy result)]
+     (calculate-anc u E 0 mass-factor 0.01 5.0 15.0))"
+  [u E l mass-factor h r-fit-min r-fit-max]
+  (let [;; Decay constant: κ = sqrt(2μ|E|)/ħ = sqrt(mass-factor · |E|)
+        kappa (Math/sqrt (* mass-factor (Math/abs E)))
+        ;; Find indices for fitting region
+        idx-min (int (/ r-fit-min h))
+        idx-max (int (/ r-fit-max h))
+        idx-max-safe (min idx-max (dec (count u)))
+        ;; Extract wavefunction values in fitting region
+        u-fit (mapv (fn [i]
+                     (let [r (* i h)
+                           u-val (get u i)]
+                       {:r r :u u-val}))
+                   (range idx-min (inc idx-max-safe)))
+        ;; Fit to asymptotic form: u(r) = C · e^(-κr) / r^l
+        ;; Taking logarithm: ln(u · r^l) = ln(C) - κr
+        ;; This is a linear fit: y = a + b·r, where y = ln(u·r^l), a = ln(C), b = -κ
+        fit-data (filter (fn [{:keys [r u]}]
+                          (and (> (Math/abs u) 1e-10)  ; Avoid log of zero
+                               (> r 0.1)))  ; Avoid r=0 issues
+                        u-fit)
+        ;; Perform linear fit: ln(u·r^l) = ln(C) - κr
+        fit-values (mapv (fn [{:keys [r u]}]
+                          (let [r-l (if (zero? l)
+                                    1.0
+                                    (Math/pow r l))
+                                u-times-rl (* u r-l)
+                                log-u (if (> u-times-rl 0)
+                                       (Math/log u-times-rl)
+                                       -100.0)]  ; Large negative for very small values
+                            {:r r :y log-u}))
+                        fit-data)]
+    (if (and (seq fit-values) (> (count fit-values) 2))
+      (let [;; Linear regression: y = a + b·r
+            ;; a = ln(C), b = -κ
+            n-fit (count fit-values)
+            sum-r (reduce + (map :r fit-values))
+            sum-y (reduce + (map :y fit-values))
+            sum-r2 (reduce + (map #(* (:r %) (:r %)) fit-values))
+            sum-ry (reduce + (map #(* (:r %) (:y %)) fit-values))
+            ;; Calculate slope and intercept
+            denominator (- (* n-fit sum-r2) (* sum-r sum-r))
+            slope (if (> (Math/abs denominator) 1e-10)
+                   (/ (- (* n-fit sum-ry) (* sum-r sum-y)) denominator)
+                   (- kappa))  ; Fallback to expected value
+            intercept (if (> (Math/abs denominator) 1e-10)
+                       (/ (- (* sum-y sum-r2) (* sum-r sum-ry)) denominator)
+                       (Math/log (Math/abs (first (map :u fit-data)))))
+            ;; ANC: C = exp(intercept)
+            anc (Math/exp intercept)
+            ;; Verify: slope should be approximately -κ
+            slope-check (Math/abs (+ slope kappa))]
+        ;; Return ANC, but check if fit is reasonable
+        (if (< slope-check (* 0.5 kappa))  ; Slope should be close to -κ
+          anc
+          ;; If fit is poor, estimate from single point at large r
+          (let [last-point (last fit-values)
+                r-last (:r last-point)
+                u-last (get u (int (/ r-last h)))
+                r-l-power (if (zero? l) 1.0 (Math/pow r-last l))
+                exp-kappa-r (Math/exp (* kappa r-last))
+                anc-estimate (* u-last r-l-power exp-kappa-r)]
+            anc-estimate)))
+      ;; If not enough points, estimate from last point
+      (let [last-idx (min (dec (count u)) idx-max-safe)
+            r-last (* last-idx h)
+            u-last (get u last-idx)
+            r-l-power (if (zero? l) 1.0 (Math/pow r-last l))
+            exp-kappa-r (Math/exp (* kappa r-last))
+            anc-estimate (* u-last r-l-power exp-kappa-r)]
+        anc-estimate))))
+
+(defn anc-normalized-overlap
+  "Calculate overlap integral normalized by ANC product.
+   
+   For transfer reactions, the overlap integral is often normalized using ANCs:
+   O_ANC = ∫ φ*_f(r) φ_i(r) r² dr / (C_f · C_i)
+   
+   where C_i and C_f are the ANCs of the initial and final bound states.
+   
+   This normalization is useful because:
+   1. ANCs are often measured experimentally
+   2. They provide a consistent normalization scheme
+   3. The product D₀ · ANC is commonly used in transfer reactions
+   
+   Parameters:
+   - phi-i: Initial bound state wavefunction
+   - phi-f: Final bound state wavefunction
+   - ANC-i: ANC of initial state
+   - ANC-f: ANC of final state
+   - r-max: Maximum radius (fm)
+   - h: Step size (fm)
+   
+   Returns: Normalized overlap O_ANC
+   
+   Example:
+   (let [ANC-i (calculate-anc phi-i E-i l-i mass-factor h 5.0 15.0)
+         ANC-f (calculate-anc phi-f E-f l-f mass-factor h 5.0 15.0)]
+     (anc-normalized-overlap phi-i phi-f ANC-i ANC-f r-max h))"
+  [phi-i phi-f ANC-i ANC-f r-max h]
+  (let [overlap (ff/overlap-integral phi-i phi-f r-max h)
+        anc-product (* ANC-i ANC-f)]
+    (if (> anc-product 1e-10)
+      (/ overlap anc-product)
+      0.0)))
+
+;; ============================================================================
 ;; UTILITY FUNCTIONS
 ;; ============================================================================
 
@@ -1076,6 +1219,12 @@
         h-over-3-complex (complex-cartesian h-over-3 0.0)
         integral (mul h-over-3-complex
                      (add first-term last-term simpson-sum))]
+    ;; NOTE: The distorted waves (χ_i, χ_f) are normalized to max|χ| = 1,
+    ;; but for proper DWBA they should be normalized to unit incoming flux.
+    ;; This causes the transfer amplitude to be too large by many orders of magnitude.
+    ;; The proper normalization requires calculating the S-matrix and normalizing
+    ;; the asymptotic form χ(r) → (1/k) sin(kr + δ) to unit flux.
+    ;; TODO: Implement proper flux normalization for distorted waves in distorted-wave-optical
     integral))
 
 (defn transfer-amplitude-prior
@@ -1553,49 +1702,45 @@
 (defn transfer-differential-cross-section
   "Calculate differential cross-section for transfer reactions.
    
-   The differential cross-section for transfer reactions is:
-   dσ/dΩ = (μ_f/(2πħ²))² · (k_f/k_i) · |T_transfer|² · S
+   Using the standard DWBA prefactor in terms of the mass-factors already used
+   throughout this code:
    
-   where:
-   - μ_f is the reduced mass in exit channel
-   - k_i, k_f are wavenumbers in entrance and exit channels
-   - T_transfer is the transfer amplitude (from transfer-amplitude-* functions)
-   - S is the spectroscopic factor (nuclear structure information)
+   - mass-factor ≡ 2μ/ħ²  (in MeV⁻¹·fm⁻²)
+   - Textbook DWBA form:
+       dσ/dΩ = (μ_i μ_f / (2πħ²)²) · (k_f/k_i) · |T_transfer|² · S
+   
+   Expressed in terms of mass-factors this becomes:
+   
+       dσ/dΩ = (mass-factor-i · mass-factor-f)/(16π²)
+               · (k_f/k_i) · |T_transfer|² · S
    
    Parameters:
    - T-amplitude: Transfer amplitude (can be complex or real number)
    - S-factor: Spectroscopic factor (dimensionless, typically 0 < S < 1)
    - k-i: Wavenumber in entrance channel (fm⁻¹)
    - k-f: Wavenumber in exit channel (fm⁻¹)
-   - mass-factor: Mass factor (2μ/ħ²) in MeV⁻¹·fm⁻²
+   - mass-factor-i: Entrance-channel mass factor (2μ_i/ħ²)
+   - mass-factor-f: Exit-channel mass factor (2μ_f/ħ²)
    
    Optional parameters:
    - E-i: Incident energy (MeV) - for documentation/validation
    - E-f: Final energy (MeV) - for documentation/validation
    
-   Returns: dσ/dΩ in fm²/sr (can be converted to mb/sr by multiplying by 10)
-   
-   Example:
-   (let [T-transfer (transfer-amplitude-zero-range ...)
-         k-i (Math/sqrt (* mass-factor 10.0))
-         k-f (Math/sqrt (* mass-factor 8.0))
-         S 0.5]
-     (transfer-differential-cross-section T-transfer S k-i k-f mass-factor))"
-  ([T-amplitude S-factor k-i k-f mass-factor]
-   (transfer-differential-cross-section T-amplitude S-factor k-i k-f mass-factor nil nil))
-  ([T-amplitude S-factor k-i k-f mass-factor _E-i _E-f]
-   (let [;; Reduced mass factor: μ/(2πħ²) = mass-factor/(4π)
-         mu-factor (/ mass-factor (* 4.0 Math/PI))
+   Returns: dσ/dΩ in fm²/sr (can be converted to mb/sr by multiplying by 10)."
+  ([T-amplitude S-factor k-i k-f mass-factor-i mass-factor-f]
+   (transfer-differential-cross-section T-amplitude S-factor k-i k-f mass-factor-i mass-factor-f nil nil))
+  ([T-amplitude S-factor k-i k-f mass-factor-i mass-factor-f _E-i _E-f]
+   (let [;; Combined prefactor (mass-factor-i * mass-factor-f) / (16π²)
+         prefactor (/ (* mass-factor-i mass-factor-f)
+                      (* 16.0 Math/PI Math/PI))
          ;; Wavenumber ratio: k_f/k_i
          k-ratio (/ k-f k-i)
          ;; Amplitude squared: |T|²
          T-squared (if (number? T-amplitude)
                     (* T-amplitude T-amplitude)
                     (let [T-mag-val (mag T-amplitude)]
-                      (* T-mag-val T-mag-val)))
-         ;; Multiply all factors: (μ/(2πħ²))² · (k_f/k_i) · |T|² · S
-         dsigma (* mu-factor mu-factor k-ratio T-squared S-factor)]
-     dsigma)))
+                      (* T-mag-val T-mag-val)))]
+     (* prefactor k-ratio T-squared S-factor))))
 
 (defn transfer-differential-cross-section-angular
   "Calculate differential cross-section as a function of angle.
