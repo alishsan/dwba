@@ -136,60 +136,72 @@
           (show-status "Error: Please provide valid energy range and angular momenta" "error")
           (set! (.-disabled calculate-btn) false)
           (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-calculator\"></i> Calculate DWBA"))
-        ;; Calculate all reaction types in parallel
+        ;; Calculate basic results first (required), then optional calculations
         (let [basic-promise (-> (js/fetch (str api-base "/api/calculate")
                                           (clj->js {:method "POST"
                                                     :headers {"Content-Type" "application/json"}
                                                     :body (js/JSON.stringify (clj->js params))}))
-                                (.then (fn [r] (.json r))))
-              elastic-promise (-> (js/fetch (str api-base "/api/elastic")
-                                            (clj->js {:method "POST"
-                                                      :headers {"Content-Type" "application/json"}
-                                                      :body (js/JSON.stringify (clj->js params))}))
-                                  (.then (fn [r] (.json r))))
-              inelastic-promise (-> (js/fetch (str api-base "/api/inelastic")
-                                              (clj->js {:method "POST"
-                                                        :headers {"Content-Type" "application/json"}
-                                                        :body (js/JSON.stringify (clj->js params))}))
-                                    (.then (fn [r] (.json r))))
-              transfer-promise (-> (js/fetch (str api-base "/api/transfer")
-                                             (clj->js {:method "POST"
-                                                       :headers {"Content-Type" "application/json"}
-                                                       :body (js/JSON.stringify (clj->js params))}))
-                                   (.then (fn [r] (.json r))))]
+                                (.then (fn [r] (.json r))))]
           
-          (-> (js/Promise.all (array basic-promise elastic-promise inelastic-promise transfer-promise))
-              (.then (fn [results]
-                       (let [calculation-time (- (js/Date.now) start-time)
-                             basic-result (aget results 0)
-                             elastic-result (aget results 1)
-                             inelastic-result (aget results 2)
-                             transfer-result (aget results 3)]
-                         
-                         (if (aget basic-result "success")
-                           (do
-                             (swap! dashboard-state assoc :current-data
-                                    (merge (js->clj (aget basic-result "data") :keywordize-keys true)
-                                           (when (aget elastic-result "success")
-                                             {:elastic (js->clj (aget elastic-result "data" "elastic") :keywordize-keys true)})
-                                           (when (aget inelastic-result "success")
-                                             {:inelastic (js->clj (aget inelastic-result "data" "inelastic") :keywordize-keys true)})
-                                           (when (aget transfer-result "success")
-                                             {:transfer (js->clj (aget transfer-result "data" "transfer") :keywordize-keys true)})))
-                             (update-all-plots)
-                             (update-dashboard-stats calculation-time)
-                             (show-status (str "Calculation completed successfully in " calculation-time "ms") "success"))
-                           (do
-                             (show-status (str "Error: " (or (aget basic-result "error") "Calculation failed")) "error")
-                             (set! (.-disabled calculate-btn) false)
-                             (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-calculator\"></i> Calculate DWBA"))))))
+          (-> basic-promise
+              (.then (fn [basic-result]
+                       (if (aget basic-result "success")
+                         (let [basic-data (js->clj (aget basic-result "data") :keywordize-keys true)
+                               ;; Load optional calculations in parallel (but don't wait for them)
+                               elastic-promise (-> (js/fetch (str api-base "/api/elastic")
+                                                             (clj->js {:method "POST"
+                                                                       :headers {"Content-Type" "application/json"}
+                                                                       :body (js/JSON.stringify (clj->js params))}))
+                                                   (.then (fn [r] (.json r)))
+                                                   (.catch (fn [e] (js/console.warn "Elastic calculation failed:" e) #js {:success false})))
+                               inelastic-promise (-> (js/fetch (str api-base "/api/inelastic")
+                                                               (clj->js {:method "POST"
+                                                                         :headers {"Content-Type" "application/json"}
+                                                                         :body (js/JSON.stringify (clj->js params))}))
+                                                     (.then (fn [r] (.json r)))
+                                                     (.catch (fn [e] (js/console.warn "Inelastic calculation failed:" e) #js {:success false})))
+                               transfer-promise (-> (js/fetch (str api-base "/api/transfer")
+                                                              (clj->js {:method "POST"
+                                                                        :headers {"Content-Type" "application/json"}
+                                                                        :body (js/JSON.stringify (clj->js params))}))
+                                                    (.then (fn [r] (.json r)))
+                                                    (.catch (fn [e] (js/console.warn "Transfer calculation failed:" e) #js {:success false})))]
+                           
+                           ;; Update UI immediately with basic results
+                           (swap! dashboard-state assoc :current-data basic-data)
+                           (update-all-plots)
+                           (update-dashboard-stats (- (js/Date.now) start-time))
+                           (show-status "Basic calculations complete, loading additional results..." "info")
+                           
+                           ;; Wait for optional results and update when ready
+                           (-> (js/Promise.all (array elastic-promise inelastic-promise transfer-promise))
+                               (.then (fn [results]
+                                        (let [calculation-time (- (js/Date.now) start-time)
+                                              elastic-result (aget results 0)
+                                              inelastic-result (aget results 1)
+                                              transfer-result (aget results 2)]
+                                          (swap! dashboard-state assoc :current-data
+                                                 (merge basic-data
+                                                        (when (aget elastic-result "success")
+                                                          {:elastic (js->clj (aget elastic-result "data" "elastic") :keywordize-keys true)})
+                                                        (when (aget inelastic-result "success")
+                                                          {:inelastic (js->clj (aget inelastic-result "data" "inelastic") :keywordize-keys true)})
+                                                        (when (aget transfer-result "success")
+                                                          {:transfer (js->clj (aget transfer-result "data" "transfer") :keywordize-keys true)})))
+                                          (update-all-plots)
+                                          (show-status (str "All calculations completed in " calculation-time "ms") "success"))))
+                               (.catch (fn [error]
+                                         (js/console.warn "Some optional calculations failed:" error)
+                                         (show-status "Basic calculations complete (some optional calculations failed)" "info")))))
+                         (do
+                           (show-status (str "Error: " (or (aget basic-result "error") "Calculation failed")) "error")
+                           (set! (.-disabled calculate-btn) false)
+                           (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-calculator\"></i> Calculate DWBA")))))
               (.catch (fn [error]
                         (js/console.error "Calculation error:" error)
-                        (show-status (str "Error: " (.-message error)) "error")))
-              (.finally (fn []
-                          ;; Reset button state
-                          (set! (.-disabled calculate-btn) false)
-                          (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-calculator\"></i> Calculate DWBA")))))))))
+                        (show-status (str "Error: " (.-message error)) "error")
+                        (set! (.-disabled calculate-btn) false)
+                        (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-calculator\"></i> Calculate DWBA")))))))))
 
 ;; Update all plots
 (defn update-all-plots []

@@ -638,3 +638,31 @@
             diff-imag (Math/abs (- (im U-direct) (im U-entrance)))]
         (is (< diff-real 2.0) "Real parts should be consistent (within 2 MeV)")
         (is (< diff-imag 2.0) "Imaginary parts should be consistent (within 2 MeV)")))))
+
+(deftest optical-potential-r-zero-test
+  (testing "Optical potential at r=0 should not be NaN or Inf"
+    (let [V-params [50.0 2.0 0.6]
+          W-params [10.0 2.0 0.6]
+          V-so 7.0
+          R-so 2.0
+          a-so 0.6
+          l 1
+          s 0.5
+          j 1.5
+          U (t/optical-potential-woods-saxon 0.0 V-params W-params V-so R-so a-so l s j 1 8 2.0)]
+      (is (c/complex? U) "Should return a complex number")
+      (is (not (Double/isNaN (re U))) "Real part should not be NaN")
+      (is (not (Double/isNaN (im U))) "Imaginary part should not be NaN")
+      (is (not (Double/isInfinite (re U))) "Real part should not be Infinite")
+      (is (not (Double/isInfinite (im U))) "Imaginary part should not be Infinite")))
+  (testing "Optical potential entrance channel at r=0"
+    (let [U (t/optical-potential-entrance-channel 0.0 :p 16 8 10.0 1 0.5 1.5)]
+      (is (c/complex? U) "Should return a complex number")
+      (is (not (Double/isNaN (re U))) "Real part should not be NaN")
+      (is (not (Double/isNaN (im U))) "Imaginary part should not be NaN")))
+  (testing "f-r-numerov-complex at r=0"
+    (let [U (complex-cartesian 50.0 10.0)
+          f (t/f-r-numerov-complex 0.0 10.0 1 U mass-factor)]
+      (is (c/complex? f) "Should return a complex number")
+      (is (not (Double/isNaN (re f))) "Real part should not be NaN")
+      (is (not (Double/isNaN (im f))) "Imaginary part should not be NaN"))))

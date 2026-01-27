@@ -174,6 +174,17 @@
   (println (format "  Energy: E_f = %.2f MeV (CM)" E-CM-f))
   (println (format "  Angular momentum: L_f = %d" L-f))
   (println (format "  Wavefunction length: %d points" (count chi-f)))
+  ;; Check magnitude of distorted waves
+  (let [chi-i-max (apply max (map #(if (number? %) (Math/abs %) (mag %)) chi-i))
+        chi-f-max (apply max (map #(if (number? %) (Math/abs %) (mag %)) chi-f))
+        chi-i-avg (let [sum (reduce + (map #(if (number? %) (Math/abs %) (mag %)) chi-i))]
+                    (/ sum (count chi-i)))
+        chi-f-avg (let [sum (reduce + (map #(if (number? %) (Math/abs %) (mag %)) chi-f))]
+                    (/ sum (count chi-f)))]
+    (println (format "  chi-i max magnitude: %.6e" chi-i-max))
+    (println (format "  chi-f max magnitude: %.6e" chi-f-max))
+    (println (format "  chi-i avg magnitude: %.6e" chi-i-avg))
+    (println (format "  chi-f avg magnitude: %.6e" chi-f-avg)))
   (println "")
   
   (println "=== Step 4: Transfer Amplitude (Post Formulation) ===")

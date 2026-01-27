@@ -60,13 +60,19 @@
         (when (or (empty? energies) (empty? L-values))
           (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
         
-        ;; Calculate datasets (avoid inline defs)
-        (let [phase-shift-data
+        ;; Calculate datasets with caching to avoid redundant calculations
+        (let [;; Cache phase shifts to avoid recalculating
+              phase-shift-cache (into {} 
+                                     (for [E energies
+                                           L L-values]
+                                       [[E L] (phys/phase-shift E ws-params radius L)]))
+              
+              phase-shift-data
               (for [E energies
                     L L-values]
                 {:energy E 
                  :L L 
-                 :phase_shift (phys/phase-shift E ws-params radius L)})
+                 :phase_shift (get phase-shift-cache [E L])})
               
               r-matrix-data
               (for [E energies
@@ -76,18 +82,20 @@
                  :r_nuclear (phys/r-matrix-a E ws-params radius L)
                  :r_coulomb_nuclear (phys/r-matrix E ws-params radius L)})
               
+              ;; Reduce potential data points for faster calculation (0.2 fm steps instead of 0.1)
               potential-data
-              (let [radii (range 0.1 10.0 0.1)]
+              (let [radii (range 0.1 10.0 0.2)]
                 (for [r radii]
                   {:radius r 
                    :woods_saxon (phys/WS r ws-params)
                    :coulomb (phys/Coulomb-pot r (second ws-params))
                    :combined (+ (phys/WS r ws-params) (phys/Coulomb-pot r (second ws-params)))}))
               
+              ;; Use cached phase shifts for cross-section calculation
               cross-section-data
               (for [E energies]
                 {:energy E 
-                 :total_cross_section (reduce + (map #(Math/pow (Math/sin (phys/phase-shift E ws-params radius %)) 2) L-values))})]
+                 :total_cross_section (reduce + (map #(Math/pow (Math/sin (get phase-shift-cache [E %])) 2) L-values))})]
           
           (response {:success true
                      :data {:phase_shifts phase-shift-data
@@ -120,12 +128,14 @@
         (when (or (empty? energies) (empty? L-values))
           (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
         
-        (let [elastic-data
+        (let [;; Cache resolved function to avoid repeated resolution
+              dsigma-fn (or (resolve 'functions/differential-cross-section)
+                            (do (require 'functions) (resolve 'functions/differential-cross-section)))
+              L-max (apply max L-values)
+              elastic-data
               (for [E energies
                     theta angles]
                 (let [theta-rad (* theta (/ Math/PI 180.0))
-                      L-max (apply max L-values)
-                      dsigma-fn (resolve 'functions/differential-cross-section)
                       dsigma-complex (if dsigma-fn
                                        (dsigma-fn E ws-params theta-rad L-max)
                                        0.0)
@@ -150,11 +160,16 @@
   ;; Inelastic scattering endpoint
   (POST "/api/inelastic" req
     (try
-      ;; Lazy load inelastic namespace only when needed
-      (require 'dwba.inelastic :reload)
-      (let [inel (resolve 'dwba.inelastic/distorted-wave-entrance)
-            inel-exit (resolve 'dwba.inelastic/distorted-wave-exit)
-            inel-cross (resolve 'dwba.inelastic/inelastic-cross-section)
+      ;; Lazy load inelastic namespace only when needed (cache after first load)
+      (when-not (find-ns 'dwba.inelastic)
+        (require 'dwba.inelastic))
+      ;; Cache resolved functions to avoid repeated resolution
+      (let [inel (or (resolve 'dwba.inelastic/distorted-wave-entrance)
+                     (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/distorted-wave-entrance)))
+            inel-exit (or (resolve 'dwba.inelastic/distorted-wave-exit)
+                          (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/distorted-wave-exit)))
+            inel-cross (or (resolve 'dwba.inelastic/inelastic-cross-section)
+                           (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/inelastic-cross-section)))
             params (or (:body req) (:params req) {})
             parse-doubles (fn [xs] (mapv #(Double/parseDouble (str %)) xs))
             parse-ints    (fn [xs] (mapv #(Integer/parseInt (str %)) xs))
@@ -208,11 +223,16 @@
   ;; Transfer reaction endpoint
   (POST "/api/transfer" req
     (try
-      ;; Lazy load transfer namespace only when needed
-      (require 'dwba.transfer :reload)
-      (let [zero-range-const (resolve 'dwba.transfer/zero-range-constant)
-            transfer-amp (resolve 'dwba.transfer/transfer-amplitude-zero-range)
-            transfer-dsigma (resolve 'dwba.transfer/transfer-differential-cross-section)
+      ;; Lazy load transfer namespace only when needed (cache after first load)
+      (when-not (find-ns 'dwba.transfer)
+        (require 'dwba.transfer))
+      ;; Cache resolved functions to avoid repeated resolution
+      (let [zero-range-const (or (resolve 'dwba.transfer/zero-range-constant)
+                                  (do (require 'dwba.transfer) (resolve 'dwba.transfer/zero-range-constant)))
+            transfer-amp (or (resolve 'dwba.transfer/transfer-amplitude-zero-range)
+                              (do (require 'dwba.transfer) (resolve 'dwba.transfer/transfer-amplitude-zero-range)))
+            transfer-dsigma (or (resolve 'dwba.transfer/transfer-differential-cross-section)
+                                 (do (require 'dwba.transfer) (resolve 'dwba.transfer/transfer-differential-cross-section)))
             params (or (:body req) (:params req) {})
             parse-doubles (fn [xs] (mapv #(Double/parseDouble (str %)) xs))
             parse-ints    (fn [xs] (mapv #(Integer/parseInt (str %)) xs))

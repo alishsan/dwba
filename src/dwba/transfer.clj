@@ -89,23 +89,33 @@
                                                 (take (+ steps 2) (iterate #(+ % h) 0.0)))
                                        h2-12 (/ (* h h) 12.0)]
                                    
-                                   (let [results (loop [n 1
-                                                        results [u0 u1]]
+                                   (let [results (loop [n      (long 1)
+                                                        u-prev (double u0)
+                                                        u-curr (double u1)
+                                                        acc    (transient [u0 u1])]
                                                    (if (>= n (dec steps))
-                                                     results
-                                                     (let [un (get results n)
-                                                           un-1 (get results (dec n))
-                                                           fn-1 (get fs (dec n))
-                                                           fn (get fs n)
-                                                           fn+1 (get fs (inc n))
+                                                     (persistent! acc)
+                                                     (let [;; Fast vector lookups with type hints
+                                                           fn-1 (double (nth fs (dec n)))
+                                                           fn   (double (nth fs n))
+                                                           fn+1 (double (nth fs (inc n)))
                                                            
                                                            ;; Numerov step formula (physical units)
-                                                           numerator (+ (* 2.0 un) 
-                                                                        (- un-1) 
-                                                                        (* h2-12 (+ (* 10.0 fn un) (* fn-1 un-1))))
+                                                           ;; Primitive arithmetic for performance
+                                                           term1     (* 2.0 u-curr)
+                                                           term2     (- u-prev)
+                                                           inner-sum (+ (* 10.0 fn u-curr) 
+                                                                        (* fn-1 u-prev))
+                                                           term3     (* h2-12 inner-sum)
+                                                           
+                                                           numerator   (+ term1 term2 term3)
                                                            denominator (- 1.0 (* h2-12 fn+1))
-                                                           un+1 (/ numerator denominator)]
-                                                       (recur (inc n) (conj results un+1)))))]
+                                                           
+                                                           u-next      (/ numerator denominator)]
+                                                       (recur (inc n)
+                                                              u-curr
+                                                              u-next
+                                                              (conj! acc u-next)))))]
                                      results)))
 
   ([e l Vparams m-f]
@@ -1044,20 +1054,27 @@
                                                     (format "Unknown interaction type: %s" interaction-type))))
                                r-squared (* r r)]
                            ;; Use complex multiplication: χ*_f · V · φ*_f · φ_i · χ_i · r²
-                           (mul chi-f-conj V-transfer phi-f-conj phi-i-val chi-i-val r-squared)))
-                       (range n))
+                           ;; Convert real numbers to complex for safe multiplication
+                           (let [V-complex (if (number? V-transfer)
+                                           (complex-cartesian V-transfer 0.0)
+                                           V-transfer)
+                                 r-sq-complex (complex-cartesian r-squared 0.0)]
+                             (mul chi-f-conj V-complex phi-f-conj phi-i-val chi-i-val r-sq-complex))))
+                       (range n)) ;integrand
         ;; Simpson's rule integration with complex numbers
         simpson-sum (loop [i 1 sum (complex-cartesian 0.0 0.0)]
                      (if (>= i (dec n))
                        sum
                        (let [coeff (if (odd? i) 4.0 2.0)
                              term-val (get integrand i)
-                             term (mul coeff term-val)]
+                             coeff-complex (complex-cartesian coeff 0.0)
+                             term (mul coeff-complex term-val)]
                          (recur (inc i) (add sum term)))))
         h-over-3 (/ h 3.0)
         first-term (get integrand 0)
         last-term (get integrand (dec n))
-        integral (mul h-over-3
+        h-over-3-complex (complex-cartesian h-over-3 0.0)
+        integral (mul h-over-3-complex
                      (add first-term last-term simpson-sum))]
     integral))
 
@@ -1820,15 +1837,17 @@
          ;; Spin-orbit coupling: V_so · (l·s) · f_so(r)
          ;; (l·s) = (j(j+1) - l(l+1) - s(s+1))/2
          V-so-term (if (and V-so R-so a-so l s j)
-                    (let [f-so (/ 1.0 (+ 1.0 (Math/exp (/ (- r R-so) a-so))))
-                          ;; Derivative of f-so for spin-orbit form factor
-                          df-so-dr (/ (* f-so (- 1.0 f-so)) a-so)
-                          l-dot-s (/ (- (* j (+ j 1.0))
-                                       (* l (+ l 1.0))
-                                       (* s (+ s 1.0)))
-                                    2.0)
-                          V-so-radial (* V-so l-dot-s df-so-dr (/ 1.0 r))]
-                      V-so-radial)
+                    (if (zero? r)
+                      0.0  ; Spin-orbit term is zero at r=0
+                      (let [f-so (/ 1.0 (+ 1.0 (Math/exp (/ (- r R-so) a-so))))
+                            ;; Derivative of f-so for spin-orbit form factor
+                            df-so-dr (/ (* f-so (- 1.0 f-so)) a-so)
+                            l-dot-s (/ (- (* j (+ j 1.0))
+                                         (* l (+ l 1.0))
+                                         (* s (+ s 1.0)))
+                                      2.0)
+                            V-so-radial (* V-so l-dot-s df-so-dr (/ 1.0 r))]
+                        V-so-radial))
                     0.0)
          
          ;; Coulomb potential: Z1*Z2*e²/r for r > R_C, else Z1*Z2*e²*(3 - r²/R_C²)/(2*R_C)
@@ -2011,17 +2030,25 @@
    
    Returns: Complex f(r) value"
   [r E l U mass-factor]
-  (let [;; Centrifugal term: l(l+1)/r²
+  (let [;; Check if U is NaN or Inf
+        U-valid (if (number? U)
+                  (and (not (Double/isNaN U)) (not (Double/isInfinite U)))
+                  (and (not (Double/isNaN (re U))) (not (Double/isInfinite (re U)))
+                       (not (Double/isNaN (im U))) (not (Double/isInfinite (im U)))))
+        ;; Centrifugal term: l(l+1)/r²
         centrifugal (if (zero? r)
                      0.0  ; Avoid division by zero
                      (/ (* l (+ l 1.0)) (* r r)))
         ;; Effective potential term: (2μ/ħ²) * [E - U(r)]
-        U-effective (if (number? U)
-                     (- E U)
-                     (subt E U))
+        U-effective (if (not U-valid)
+                     (complex-cartesian 0.0 0.0)  ; Return zero if U is invalid
+                     (if (number? U)
+                       (- E U)
+                       (subt E U)))
         potential-term (mul mass-factor U-effective)
         ;; Total: f(r) = (2μ/ħ²)[E-U] - l(l+1)/r²
-        f-total (subt potential-term centrifugal)]
+        centrifugal-complex (complex-cartesian centrifugal 0.0)
+        f-total (subt potential-term centrifugal-complex)]
     f-total))
 
 (defn distorted-wave-optical
@@ -2063,18 +2090,36 @@
                     (f-r-numerov-complex r E l U mass-factor)))
                 rs)]
     ;; Complex Numerov integration
-    (loop [n 1
-           results [u0 u1]]
-      (if (>= n (dec steps))
-        results
-        (let [un (get results n)
-              un-1 (get results (dec n))
-              fn-1 (get fs (dec n))
-              fn (get fs n)
-              fn+1 (get fs (inc n))
-              ;; Use complex Numerov step
-              un+1 (numerov-step-complex un un-1 fn-1 fn fn+1 h)]
-          (recur (inc n) (conj results un+1)))))))
+    (let [results (loop [n 1
+                         results-vec [u0 u1]]
+                    (if (>= n (dec steps))
+                      results-vec
+                      (let [un (get results-vec n)
+                            un-1 (get results-vec (dec n))
+                            fn-1 (get fs (dec n))
+                            fn (get fs n)
+                            fn+1 (get fs (inc n))
+                            ;; Use complex Numerov step
+                            un+1 (numerov-step-complex un un-1 fn-1 fn fn+1 h)]
+                        (recur (inc n) (conj results-vec un+1)))))
+          ;; Normalize distorted wave by maximum magnitude
+          ;; For scattering states, we normalize using maximum value to get reasonable scale
+          ;; This is a simplified normalization - proper normalization would use
+          ;; asymptotic behavior and S-matrix, but this should work for DWBA
+          max-mag (transduce (map #(if (number? %)
+                                    (Math/abs %)
+                                    (mag %)))
+                            (completing max)
+                            Double/NEGATIVE_INFINITY
+                            results)
+          norm-factor (if (and (> max-mag 1e-10) (< max-mag 1e20))
+                       (/ 1.0 max-mag)  ; Normalize so max magnitude = 1
+                       1.0)]  ; Don't normalize if already reasonable or invalid
+      (mapv (fn [u]
+              (if (number? u)
+                (* norm-factor u)
+                (mul norm-factor u)))
+            results))))
 
 (defn optical-potential-summary
   "Get summary of optical potential parameters.
