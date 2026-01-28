@@ -5,10 +5,33 @@
             [ring.middleware.cors :refer [wrap-cors]]
             [ring.util.response :refer [response content-type]]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [functions :as phys]           ;; use core calculations from main project
             ;; Don't require inelastic/transfer at startup - load lazily when needed
             [complex :as c]                 ;; complex numbers
             [ring.adapter.jetty :as jetty]))
+
+;; ---------------------------
+;; Parsing / validation helpers
+;; ---------------------------
+
+(defn- parse-double*
+  "Parse a value into a double, raising a clear ex-info on failure."
+  [field-name v]
+  (try
+    (Double/parseDouble (str/trim (str v)))
+    (catch Exception _
+      (throw (ex-info (format "Invalid %s: expected a number, got %s" field-name (pr-str v))
+                      {:field field-name :value v})))))
+
+(defn- parse-int*
+  "Parse a value into an int, raising a clear ex-info on failure."
+  [field-name v]
+  (try
+    (Integer/parseInt (str/trim (str v)))
+    (catch Exception _
+      (throw (ex-info (format "Invalid %s: expected an integer, got %s" field-name (pr-str v))
+                      {:field field-name :value v})))))
 
 ;; Helper function to serve index.html
 (defn serve-index []
@@ -175,12 +198,12 @@
             parse-ints    (fn [xs] (mapv #(Integer/parseInt (str %)) xs))
             energies      (parse-doubles (or (:energies params) []))
             L-values      (parse-ints (or (:L_values params) []))
-            ws-params     [(Double/parseDouble (str (:V0 params)))
-                           (Double/parseDouble (str (:R0 params)))
-                           (Double/parseDouble (str (:a0 params)))]
-            E-ex          (Double/parseDouble (str (:E_ex params)))
-            lambda        (Integer/parseInt (str (:lambda params)))
-            beta          (Double/parseDouble (str (:beta params)))
+            ws-params     [(parse-double* "V0" (:V0 params))
+                           (parse-double* "R0" (:R0 params))
+                           (parse-double* "a0" (:a0 params))]
+            E-ex          (parse-double* "excitation energy E_ex" (:E_ex params))
+            lambda        (parse-int* "multipole order lambda" (:lambda params))
+            beta          (parse-double* "deformation parameter beta" (:beta params))
             h             0.01  ; Fixed step size
             r-max         20.0  ; Fixed max radius
             mu            0     ; Magnetic quantum number (default 0)
@@ -286,7 +309,8 @@
   
   (GET "/api/parameters" []
     (response {:default_parameters
-               {:energies [5.0 10.0 15.0 20.0 25.0 30.0]
+               ;; Use 1 MeV energy steps by default (5–30 MeV inclusive)
+               {:energies (vec (map double (range 5 31)))
                 :L_values [0 1 2 3 4 5]
                 :V0 40.0
                 :R0 2.0
