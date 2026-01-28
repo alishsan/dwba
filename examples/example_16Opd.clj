@@ -17,7 +17,7 @@
 (require '[dwba.inelastic :as inel])
 (require '[functions :refer [solve-numerov mass-factor]])
 (require '[fastmath.core :as m])
-(require '[complex :refer [mag re im]])
+(require '[complex :as c :refer [mag re im complex-cartesian add mul]])
 
 (println "=== 16O(p,d) Transfer Reaction Calculation ===")
 (println "")
@@ -40,8 +40,11 @@
       m-f 0.048  ; Mass factor (2μ/ħ²) in MeV⁻¹·fm⁻²
       
       ;; Calculate bound state wavefunctions
-      phi-i (t/solve-bound-state-numerov Es-i l-i v0-i R0-i diff-i m-f h r-max)
-      phi-f (t/solve-bound-state-numerov Es-f l-f v0-f R0-f diff-f m-f h r-max)
+      phi-i-raw (t/solve-bound-state-numerov Es-i l-i v0-i R0-i diff-i m-f h r-max)
+      phi-f-raw (t/solve-bound-state-numerov Es-f l-f v0-f R0-f diff-f m-f h r-max)
+      ;; Normalize bound state wavefunctions
+      phi-i (t/normalize-bound-state phi-i-raw h)
+      phi-f (t/normalize-bound-state phi-f-raw h)
       
       ;; Calculate normalized overlap (form factor)
       overlap-norm (ff/normalized-overlap phi-i phi-f r-max h)
@@ -133,8 +136,14 @@
       ;; Spectroscopic factor (typically 0 < S < 1, using 1.0 for this example)
       S-factor 1.0
       
-      ;; Calculate differential cross section
-      dsigma (t/transfer-differential-cross-section T-post S-factor k-i k-f mass-factor-i mass-factor-f)]
+      ;; Calculate differential cross section at specific angle
+      ;; For L=0 transfer, we use {0 → T_post} as the amplitude map
+      theta-deg 0.0  ; Scattering angle in degrees (0° = forward)
+      theta-rad (* theta-deg (/ Math/PI 180.0))  ; Convert to radians
+      T-amplitudes {0 T-post}  ; Map of {L → T_L}, for L=0 only
+      ;; Use angular-dependent cross section function
+      dsigma (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f 
+                                                           theta-rad mass-factor-i mass-factor-f)]
   
   ;; ============================================================================
   ;; Output
@@ -179,11 +188,40 @@
         chi-i-avg (let [sum (reduce + (map #(if (number? %) (Math/abs %) (mag %)) chi-i))]
                     (/ sum (count chi-i)))
         chi-f-avg (let [sum (reduce + (map #(if (number? %) (Math/abs %) (mag %)) chi-f))]
-                    (/ sum (count chi-f)))]
+                    (/ sum (count chi-f)))
+        ;; Calculate integral of chi-i* · chi-f
+        n-chi (min (count chi-i) (count chi-f))
+        integrand-chi (mapv (fn [i]
+                              (let [r (* i h)
+                                    chi-i-val (get chi-i i)
+                                    chi-f-val (get chi-f i)
+                                    chi-i-conj (if (number? chi-i-val)
+                                                chi-i-val
+                                                (complex-cartesian (re chi-i-val) (- (im chi-i-val))))
+                                    product (if (and (number? chi-i-conj) (number? chi-f-val))
+                                             (* chi-i-conj chi-f-val)
+                                             (mul chi-i-conj chi-f-val))]
+                                product))
+                            (range n-chi))
+        simpson-sum-chi (loop [i 1 sum (complex-cartesian 0.0 0.0)]
+                         (if (>= i (dec n-chi))
+                           sum
+                           (let [coeff (if (odd? i) 4.0 2.0)
+                                 term-val (get integrand-chi i)
+                                 coeff-complex (complex-cartesian coeff 0.0)
+                                 term (mul coeff-complex term-val)]
+                             (recur (inc i) (add sum term)))))
+        first-term-chi (get integrand-chi 0)
+        last-term-chi (get integrand-chi (dec n-chi))
+        h-over-3-complex (complex-cartesian (/ h 3.0) 0.0)
+        integral-chi (mul h-over-3-complex
+                         (add first-term-chi last-term-chi simpson-sum-chi))]
     (println (format "  chi-i max magnitude: %.6e" chi-i-max))
     (println (format "  chi-f max magnitude: %.6e" chi-f-max))
     (println (format "  chi-i avg magnitude: %.6e" chi-i-avg))
-    (println (format "  chi-f avg magnitude: %.6e" chi-f-avg)))
+    (println (format "  chi-f avg magnitude: %.6e" chi-f-avg))
+    (println (format "  ∫ χ*_i · χ_f dr = %.6e + i%.6e" (re integral-chi) (im integral-chi)))
+    (println (format "  |∫ χ*_i · χ_f dr| = %.6e" (mag integral-chi))))
   (println "")
   
   (println "=== Step 4: Transfer Amplitude (Post Formulation) ===")
@@ -203,11 +241,12 @@
   (println (format "  k_f (exit): %.4f fm⁻¹" k-f))
   (println (format "  Ratio k_f/k_i: %.4f" (/ k-f k-i)))
   (println (format "Spectroscopic factor: S = %.2f" S-factor))
+  (println (format "Scattering angle: θ = %.1f° (%.4f rad)" theta-deg theta-rad))
   (println "")
   
   (println "Differential cross section:")
-  (println (format "  dσ/dΩ = %.6e fm²/sr" dsigma))
-  (println (format "  dσ/dΩ = %.6e mb/sr (1 mb = 10 fm²)" (* dsigma 10.0)))
+  (println (format "  dσ/dΩ(θ=%.1f°) = %.6e fm²/sr" theta-deg dsigma))
+  (println (format "  dσ/dΩ(θ=%.1f°) = %.6e mb/sr (1 mb = 10 fm²)" theta-deg (* dsigma 10.0)))
   (println "")
   
   (println "=== Summary ===")

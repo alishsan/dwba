@@ -1746,7 +1746,7 @@
   "Calculate differential cross-section as a function of angle.
    
    This combines the transfer amplitude with angular distribution:
-   dσ/dΩ(θ) = (μ_f/(2πħ²))² · (k_f/k_i) · |T(θ)|² · S
+   dσ/dΩ(θ) = (μ_i μ_f/(2πħ²)²) · (k_f/k_i) · |T(θ)|² · S
    
    where T(θ) includes the angular momentum coupling and spherical harmonics.
    
@@ -1756,28 +1756,30 @@
    - k-i: Wavenumber in entrance channel (fm⁻¹)
    - k-f: Wavenumber in exit channel (fm⁻¹)
    - theta: Scattering angle (radians)
-   - mass-factor: Mass factor (2μ/ħ²)
+   - mass-factor-i: Entrance channel mass factor (2μ_i/ħ²)
+   - mass-factor-f: Exit channel mass factor (2μ_f/ħ²)
    - phi: Azimuthal angle (radians, default 0)
    
    Returns: dσ/dΩ(θ) in fm²/sr
    
    Example:
    (let [T-map {0 1.0, 1 0.5, 2 0.2}
-         k-i (Math/sqrt (* mass-factor 10.0))
-         k-f (Math/sqrt (* mass-factor 8.0))
+         k-i (Math/sqrt (* mass-factor-i 10.0))
+         k-f (Math/sqrt (* mass-factor-f 8.0))
          S 0.5]
-     (transfer-differential-cross-section-angular T-map S k-i k-f (/ Math/PI 2) mass-factor))"
-  ([T-amplitudes S-factor k-i k-f theta mass-factor]
-   (transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f theta mass-factor 0.0))
-  ([T-amplitudes S-factor k-i k-f theta mass-factor phi]
+     (transfer-differential-cross-section-angular T-map S k-i k-f (/ Math/PI 2) mass-factor-i mass-factor-f))"
+  ([T-amplitudes S-factor k-i k-f theta mass-factor-i mass-factor-f]
+   (transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f theta mass-factor-i mass-factor-f 0.0))
+  ([T-amplitudes S-factor k-i k-f theta mass-factor-i mass-factor-f phi]
    (let [;; Get angular distribution (sum over L: |T_L|² · |Y_L0|²)
          angular-dist (transfer-angular-distribution T-amplitudes theta phi)
-         ;; Reduced mass factor: μ/(2πħ²) = mass-factor/(4π)
-         mu-factor (/ mass-factor (* 4.0 Math/PI))
+         ;; Combined prefactor (mass-factor-i * mass-factor-f) / (16π²)
+         prefactor (/ (* mass-factor-i mass-factor-f)
+                     (* 16.0 Math/PI Math/PI))
          ;; Wavenumber ratio: k_f/k_i
          k-ratio (/ k-f k-i)
-         ;; Multiply all factors: (μ/(2πħ²))² · (k_f/k_i) · angular_dist · S
-         dsigma (* mu-factor mu-factor k-ratio angular-dist S-factor)]
+         ;; Multiply all factors: (μ_i μ_f/(2πħ²)²) · (k_f/k_i) · angular_dist · S
+         dsigma (* prefactor k-ratio angular-dist S-factor)]
      dsigma)))
 
 (defn transfer-total-cross-section
