@@ -239,7 +239,7 @@
   (println (format "Wavenumbers:"))
   (println (format "  k_i (entrance): %.4f fm⁻¹" k-i))
   (println (format "  k_f (exit): %.4f fm⁻¹" k-f))
-  (println (format "  Ratio k_f/k_i: %.4f" (/ k-f k-i)))
+  (println (format "  Ratio k_f/k_i: %.4f" k-ratio))
   (println (format "Spectroscopic factor: S = %.2f" S-factor))
   (println (format "Scattering angle: θ = %.1f° (%.4f rad)" theta-deg theta-rad))
   (println "")

@@ -1571,26 +1571,35 @@
   [l m theta phi]
   (let [cos-theta (m/cos theta)
         ;; Normalization factor
-        norm-factor (Math/sqrt (/ (* (inc (* 2 l))
-                                   (m/factorial (- l (Math/abs (int m)))))
-                                (* 4.0 Math/PI
-                                   (m/factorial (+ l (Math/abs (int m)))))))
+        ;; Special case: l=0, m=0: Y_00 = 1/√(4π) for all angles
+        norm-factor (if (and (zero? l) (zero? m))
+                     (/ 1.0 (Math/sqrt (* 4.0 Math/PI)))  ; Y_00 = 1/√(4π)
+                     (Math/sqrt (/ (* (inc (* 2 l))
+                                     (m/factorial (- l (Math/abs (int m)))))
+                                  (* 4.0 Math/PI
+                                     (m/factorial (+ l (Math/abs (int m))))))))
         ;; Associated Legendre polynomial P_l^|m|(cos θ)
-        ;; For m=0, this is just the Legendre polynomial P_l(cos θ)
-        ;; For |m|>0, we use the associated Legendre polynomial approximation
-        leg-value (if (zero? m)
-                  (poly/eval-legendre-P l cos-theta)
-                  ;; For |m|>0, we approximate using derivative relation
-                  ;; P_l^m(x) = (-1)^m (1-x²)^(m/2) d^m/dx^m P_l(x)
-                  ;; Simplified: use fastmath's Legendre polynomial
-                  (let [abs-m (Math/abs (int m))
-                        sign-factor (if (even? abs-m) 1.0 -1.0)
-                        sin-theta (Math/sin theta)
-                        x-factor (m/pow sin-theta abs-m)]
-                    (* sign-factor x-factor 
-                       (poly/eval-legendre-P l cos-theta))))
-        ;; Exponential factor: exp(im φ)
-        exp-factor (complex-polar 1.0 (* m phi))
+        ;; Special case: l=0, m=0: P_0^0(x) = 1 for all x
+        leg-value (cond
+                   (and (zero? l) (zero? m))
+                   1.0  ; P_0^0 = 1
+                   (zero? m)
+                   (poly/eval-legendre-P l cos-theta)  ; P_l(cos θ)
+                   :else
+                   ;; For |m|>0, we approximate using derivative relation
+                   ;; P_l^m(x) = (-1)^m (1-x²)^(m/2) d^m/dx^m P_l(x)
+                   ;; Simplified: use fastmath's Legendre polynomial
+                   (let [abs-m (Math/abs (int m))
+                         sign-factor (if (even? abs-m) 1.0 -1.0)
+                         sin-theta (Math/sin theta)
+                         x-factor (m/pow sin-theta abs-m)]
+                     (* sign-factor x-factor 
+                        (poly/eval-legendre-P l cos-theta))))
+        ;; Exponential factor: exp(im φ) = cos(mφ) + i sin(mφ)
+        ;; Special case: m=0 or phi=0 gives exp(0) = 1
+        exp-factor (if (or (zero? m) (zero? phi))
+                    (complex-cartesian 1.0 0.0)  ; exp(0) = 1
+                    (complex-polar (* m phi) 1.0))  ; exp(imφ) = complex-polar(mφ, 1)
         ;; Multiply: norm * P_l^m * exp(im φ)
         result (mul norm-factor leg-value exp-factor)]
     result))

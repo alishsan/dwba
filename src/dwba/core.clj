@@ -2,7 +2,7 @@
 ( :require
 [fastmath.core :as m]
 [fastmath.vector :as v]
-; [fastmath.polynomials :as poly]
+[fastmath.polynomials :as poly]
  [fastmath.special :as spec]
    [fastmath.vector :as v]
 )
