@@ -6,8 +6,7 @@
    - Overlap integral = ∫₀^∞ F(r) dr = ∫₀^∞ φ*_f(r) φ_i(r) r² dr (scalar value)
    
    These are essential for calculating transfer reaction amplitudes."
-  (:require [dwba.transfer :as t]
-            [functions :refer :all]
+  (:require [functions :refer :all]
             [fastmath.core :as m]
             [fastmath.special :as spec]
             [complex :refer :all]))

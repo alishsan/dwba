@@ -20,10 +20,11 @@
              :dev {:source-paths ["src" "../src"]}}
   :resource-paths ["resources" "public"]
   :jvm-opts ["-Xmx2g"]
+  ;; ClojureScript output goes to dashboard.js so it does not overwrite the hand-written app.js
   :cljsbuild {:builds
               [{:id "dev"
                 :source-paths ["src-cljs"]
-                :compiler {:output-to "public/app.js"
+                :compiler {:output-to "public/js/dashboard.js"
                            :output-dir "public/js/out"
                            :optimizations :none
                            :source-map true
@@ -31,7 +32,7 @@
                            :main dwba-web.dashboard}}
                {:id "prod"
                 :source-paths ["src-cljs"]
-                :compiler {:output-to "public/app.js"
+                :compiler {:output-to "public/js/dashboard.js"
                            :optimizations :advanced
                            :pretty-print false
                            :main dwba-web.dashboard}}]})

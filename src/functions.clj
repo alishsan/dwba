@@ -14,17 +14,22 @@
 
 (declare f-func f-func-deriv g-func g-func-deriv hankel0+ hankel0- phase-shift0)
 
-(def hbarc 197.7) ;MeV-fm
+(def hbarc 197.7) ; MeV·fm (ℏc)
+
 ;(def mu 745) ;MeV/c^2; alpha+n
 ;(def mu 869.4) ; 14C+n
 ;(def mu 884.3); 16O + n
-(def mu 469.46); p+n
+(def ^:dynamic *default-mu* 469.46) ; p+n reduced mass (MeV/c²)
 
-(def mass-factor (/ (* 2 mu) hbarc hbarc )); mass-factor * E = k^2
+;; Reaction-dependent: 2μ/(ℏc)²; k² = mass-factor * E. Override with (binding [mass-factor ...] ...) for other reactions.
+(def ^:dynamic mass-factor (/ (* 2 *default-mu*) hbarc hbarc))
 
+;; Reaction-dependent: Z₁Z₂e² in MeV·fm. Override with (binding [Z1Z2ee ...] ...) for other reactions.
+(def ^:dynamic Z1Z2ee (* 2 1.44)) ; default: alpha + proton
 
-(def Z1Z2ee (* 2 1.44) ; alpha and proton
-  );Z1Z2 e^2 (MeV fm)
+(defn mass-factor-from-mu [mu-reduced]
+  "Return mass-factor = 2μ/(ℏc)² for the given reduced mass μ (MeV/c²). Use with (binding [mass-factor (mass-factor-from-mu mu)] ...)."
+  (/ (* 2 mu-reduced) hbarc hbarc))
 
 ;; Kinematic transformation functions
 (defn lab-to-cm-energy [E-lab m1 m2]
@@ -470,7 +475,7 @@ dudr 1
   [^double E V  ^double a ^long L]  ;no coulomb ;construct R-matrix * a depending on 1D Woods-Saxon potential V(R) = -V0/(1+exp ((r-R0)/a0)) V = [V0, R0, a0]
 ;choose u(0) = 0, u'(0) = 1 for initial conditions
 (let [
-dr 0.00001]
+dr 0.001]
 (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
 (if (> x a)
 (/ ur dudr) ;Ra = u/dudr  (dudr = d2udr2 * dr)
@@ -802,7 +807,7 @@ precision 0.00001]
                       R0 (second V)
                       a0 (last V)
                       a (* 3 (+ R0 a0)) ; a outside of the nuclear range
-                      dr 0.00001]
+                      dr 0.001]
                   (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
                     (if (> x a)
                       (/ ur dudr a); R = ur/ (a dudr) 
@@ -816,7 +821,7 @@ precision 0.00001]
                 (let [
                       R0 (second V)
                       a0 (last V)
-                      dr 0.00001]
+                      dr 0.001]
                   (loop [x dr pot 0 d2udr2 (/ 1. dr) dudr 1 ur dr]
                     (if (> x a)
                       (/ ur dudr a); R = ur/ (a dudr) 
@@ -827,16 +832,19 @@ precision 0.00001]
                     )))
 )
 
+(defn s-matrix-3-impl [^double E V ^long L]
+  (let [a (* 2 (+ (second V) (last V)))
+        k (m/sqrt (* mass-factor E))
+        R (r-matrix E V a L)
+        eta (* Z1Z2ee (/ mass-factor k 2))
+        rho (* k a)]
+    (c/div (c/subt2 (Hankel- L eta rho) (c/mul rho R (deriv Hankel- L eta rho 0.0000001)))
+           (c/subt2 (Hankel+ L eta rho) (c/mul rho R (deriv Hankel+ L eta rho 0.0000001))))))
+
+(def ^:private s-matrix-3 (memoize s-matrix-3-impl))
+
 (defn s-matrix ([^double E V ^long L]
-                (let [a (* 2  (+ (second V) (last V)))
-                      k (m/sqrt (*  mass-factor E))
-                      R (r-matrix E V a L)
-                      eta (* Z1Z2ee (/ mass-factor k 2))
-                      rho (* k a)
-                      ]
-                  (c/div (c/subt2 (Hankel- L eta rho) (c/mul rho R (deriv Hankel- L eta rho 0.0000001)) )
-                       (c/subt2 (Hankel+ L eta rho) (c/mul rho R (deriv Hankel+ L eta rho 0.0000001)) ))
-                  ))
+                (s-matrix-3 E (vec V) L))
 
  ([^double E V ^double a ^long L]
                 (let [
@@ -897,7 +905,6 @@ precision 0.00001]
         (reduce c/add
           (for [L (range 0 (inc L-max))]
             (let [S-matrix-val (s-matrix E-cm ws-params L)
-                  phase-shift-val (phase-shift E-cm ws-params L)
                   ;; Scattering amplitude for this L
                   f-L (c/mul (c/div (c/complex-cartesian 0 -1) k)
                            (inc (* 2 L))

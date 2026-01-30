@@ -6,10 +6,10 @@
 ;; This uses the S-matrix formalism from functions.clj to calculate
 ;; elastic differential cross sections.
 
-(require '[functions :refer [differential-cross-section total-cross-section s-matrix phase-shift]])
+(require '[functions :refer [differential-cross-section total-cross-section s-matrix phase-shift mass-factor mass-factor-from-mu Z1Z2ee]])
 (require '[fastmath.core :as m])
 (require '[fastmath.polynomials :as poly])
-(require '[complex :refer [mag re im arg complex-conjugate]])
+(require '[complex :refer [mag re im arg complex-conjugate subt]])
 
 ;; ============================================================================
 ;; Reaction Parameters
@@ -63,16 +63,7 @@
 (println (format "  CM energy: E_CM = %.2f MeV" E-CM))
 (println "")
 
-;; Note: The functions in functions.clj use global variables:
-;; - mass-factor: Currently set for p+n system (469.46 MeV/c²)
-;; - Z1Z2ee: Currently set for alpha+proton (2*1.44 = 2.88 MeV·fm)
-;;
-;; For 11Li(d,d), we need:
-;; - mass-factor for d+11Li: μ = 1585.5 MeV/c² → 2μ/ħ² = 8.11e-2 MeV⁻¹·fm⁻²
-;; - Z1Z2ee for d+11Li: Z1*Z2 = 1*3 = 3 → 3*1.44 = 4.32 MeV·fm
-;;
-;; The calculation will use the global values, which may not be correct.
-;; Results should be interpreted with this limitation in mind.
+;; We bind mass-factor and Z1Z2ee below for d+11Li so the calculation uses the correct kinematics.
 ;;
 ;; OPTICAL POTENTIAL SUPPORT:
 ;; For more realistic elastic scattering calculations with optical potentials
@@ -88,12 +79,16 @@
 ;; S-Matrix and Phase Shifts
 ;; ============================================================================
 
-(println "=== S-Matrix and Phase Shifts ===")
+;; Bind reaction-specific mass-factor and Z1Z2ee for d+11Li (μ = 1585.5 MeV/c², Z1*Z2 = 3)
+(binding [mass-factor (mass-factor-from-mu mu-reduced)
+          Z1Z2ee (* 3 1.44)]
+  (do
+    (println "=== S-Matrix and Phase Shifts ===")
 
-;; Calculate S-matrix and phase shifts for different partial waves
-(def L-max 10)  ; Maximum L to include
+    ;; Calculate S-matrix and phase shifts for different partial waves
+    (def L-max 10)  ; Maximum L to include
 
-(println (format "Calculating S-matrix and phase shifts for L = 0 to %d:" L-max))
+    (println (format "Calculating S-matrix and phase shifts for L = 0 to %d:" L-max))
 (println "")
 
 ;; Calculate for first few L values
@@ -214,12 +209,12 @@
 
 (println "=== Notes ===")
 (println "1. This calculation uses the S-matrix formalism from functions.clj")
-(println "2. The mass-factor in functions.clj is set globally")
+(println "2. mass-factor and Z1Z2ee are bound for d+11Li (not the default p+n)")
 (println "3. For d+11Li, Z1*Z2 = 1*3 = 3 (Coulomb effects included)")
 (println "4. The calculation includes both nuclear and Coulomb scattering")
 (println "5. Elastic cross sections are typically much larger than inelastic")
 (println "6. The angular distribution shows forward peak and oscillations")
 (println "")
 
-(println "=== Calculation Complete ===")
+    (println "=== Calculation Complete ===")))
 

@@ -9,7 +9,8 @@
 
 ;; Dashboard state
 (defonce dashboard-state (atom {:api-base ""
-                                :current-data nil}))
+                                :current-data nil
+                                :active-tab :phase}))
 
 ;; Helper functions
 (defn get-element [id]
@@ -46,6 +47,19 @@
           (let [value (js/parseFloat (.-value (.-target e)))
                 unit (if (= param "V0") "MeV" "fm")]
             (set-text! (str param "-value") (str value " " unit)))))))
+  ;; Tab selection: track which results tab is active
+  (doseq [[tab-id tab-key] [["phase-tab" :phase]
+                            ["rmatrix-tab" :rmatrix]
+                            ["potential-tab" :potential]
+                            ["cross-section-tab" :cross-section]
+                            ["elastic-tab" :elastic]
+                            ["inelastic-tab" :inelastic]
+                            ["transfer-tab" :transfer]
+                            ["dashboard-tab" :dashboard]]]
+    (when-let [el (get-element tab-id)]
+      (events/listen el "click"
+        (fn [_]
+          (swap! dashboard-state assoc :active-tab tab-key)))))
   
   ;; Calculate button
   (let [calc-btn (get-element "calculate-btn")]
@@ -74,7 +88,7 @@
   (set-value! "a0" (:a0 params))
   (set-value! "radius" (:radius params))
   (set-value! "energy-range" (str/join "," (:energies params)))
-  (set-value! "L-values" (str/join "," (:L-values params)))
+  (set-value! "L-values" (str/join "," (or (:L_values params) (:L-values params))))
   
   (when (:E_ex params) (set-value! "E_ex" (:E_ex params)))
   (when (:lambda params) (set-value! "lambda" (:lambda params)))
@@ -87,14 +101,14 @@
   (set-text! "a0-value" (str (:a0 params) " fm"))
   (set-text! "radius-value" (str (:radius params) " fm")))
 
-;; Get parameters
+;; Get parameters (keys must match API: :L_values not :L-values)
 (defn get-parameters []
   {:V0 (get-float "V0")
    :R0 (get-float "R0")
    :a0 (get-float "a0")
    :radius (get-float "radius")
    :energies (parse-comma-separated (get-value "energy-range"))
-   :L-values (parse-comma-separated (get-value "L-values"))
+   :L_values (parse-comma-separated (get-value "L-values"))
    :E_ex (get-float "E_ex")
    :lambda (get-int "lambda")
    :beta (get-float "beta")
@@ -123,89 +137,140 @@
 (defn calculate-dwba []
   (let [start-time (js/Date.now)
         calculate-btn (get-element "calculate-btn")
-        api-base (:api-base @dashboard-state)]
+        api-base (:api-base @dashboard-state)
+        active-tab (:active-tab @dashboard-state)]
     ;; Show loading state
     (set! (.-disabled calculate-btn) true)
     (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-spinner fa-spin\"></i> Calculating...")
     (show-status "Performing DWBA calculations..." "info")
     
     (let [params (get-parameters)]
-      ;; Validate parameters
-      (if (or (empty? (:energies params)) (empty? (:L-values params)))
+      ;; Validate parameters that are common to all calculations
+      (if (or (empty? (:energies params)) (empty? (:L_values params)))
         (do
           (show-status "Error: Please provide valid energy range and angular momenta" "error")
           (set! (.-disabled calculate-btn) false)
           (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-calculator\"></i> Calculate DWBA"))
-        ;; Calculate basic results first (required), then optional calculations
-        (let [basic-promise (-> (js/fetch (str api-base "/api/calculate")
-                                          (clj->js {:method "POST"
-                                                    :headers {"Content-Type" "application/json"}
-                                                    :body (js/JSON.stringify (clj->js params))}))
-                                (.then (fn [r] (.json r))))]
-          
-          (-> basic-promise
+        ;; Dispatch to the appropriate endpoint based on the active tab
+        (case active-tab
+          ;; Core phase-shift / R-matrix / potentials / total cross sections
+          (:phase :rmatrix :potential :cross-section :dashboard)
+          (-> (js/fetch (str api-base "/api/calculate")
+                        (clj->js {:method "POST"
+                                  :headers {"Content-Type" "application/json"}
+                                  :body (js/JSON.stringify (clj->js params))}))
+              (.then (fn [r] (.json r)))
               (.then (fn [basic-result]
                        (if (aget basic-result "success")
                          (let [basic-data (js->clj (aget basic-result "data") :keywordize-keys true)
-                               ;; Load optional calculations in parallel (but don't wait for them)
-                               elastic-promise (-> (js/fetch (str api-base "/api/elastic")
-                                                             (clj->js {:method "POST"
-                                                                       :headers {"Content-Type" "application/json"}
-                                                                       :body (js/JSON.stringify (clj->js params))}))
-                                                   (.then (fn [r] (.json r)))
-                                                   (.catch (fn [e] (js/console.warn "Elastic calculation failed:" e) #js {:success false})))
-                               inelastic-promise (-> (js/fetch (str api-base "/api/inelastic")
-                                                               (clj->js {:method "POST"
-                                                                         :headers {"Content-Type" "application/json"}
-                                                                         :body (js/JSON.stringify (clj->js params))}))
-                                                     (.then (fn [r] (.json r)))
-                                                     (.catch (fn [e] (js/console.warn "Inelastic calculation failed:" e) #js {:success false})))
-                               transfer-promise (-> (js/fetch (str api-base "/api/transfer")
-                                                              (clj->js {:method "POST"
-                                                                        :headers {"Content-Type" "application/json"}
-                                                                        :body (js/JSON.stringify (clj->js params))}))
-                                                    (.then (fn [r] (.json r)))
-                                                    (.catch (fn [e] (js/console.warn "Transfer calculation failed:" e) #js {:success false})))]
-                           
-                           ;; Update UI immediately with basic results
+                               calculation-time (- (js/Date.now) start-time)]
                            (swap! dashboard-state assoc :current-data basic-data)
+                           (js/console.log "Calculate result: success" (clj->js (count (:phase_shifts basic-data))))
                            (update-all-plots)
-                           (update-dashboard-stats (- (js/Date.now) start-time))
-                           (show-status "Basic calculations complete, loading additional results..." "info")
-                           
-                           ;; Wait for optional results and update when ready
-                           (-> (js/Promise.all (array elastic-promise inelastic-promise transfer-promise))
-                               (.then (fn [results]
-                                        (let [calculation-time (- (js/Date.now) start-time)
-                                              elastic-result (aget results 0)
-                                              inelastic-result (aget results 1)
-                                              transfer-result (aget results 2)]
-                                          (swap! dashboard-state assoc :current-data
-                                                 (merge basic-data
-                                                        (when (aget elastic-result "success")
-                                                          {:elastic (js->clj (aget elastic-result "data" "elastic") :keywordize-keys true)})
-                                                        (when (aget inelastic-result "success")
-                                                          {:inelastic (js->clj (aget inelastic-result "data" "inelastic") :keywordize-keys true)})
-                                                        (when (aget transfer-result "success")
-                                                          {:transfer (js->clj (aget transfer-result "data" "transfer") :keywordize-keys true)})))
-                                          (update-all-plots)
-                                          (show-status (str "All calculations completed in " calculation-time "ms") "success"))))
-                               (.catch (fn [error]
-                                         (js/console.warn "Some optional calculations failed:" error)
-                                         (show-status "Basic calculations complete (some optional calculations failed)" "info")))))
-                         (do
-                           (show-status (str "Error: " (or (aget basic-result "error") "Calculation failed")) "error")
-                           (set! (.-disabled calculate-btn) false)
-                           (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-calculator\"></i> Calculate DWBA")))))
+                           (update-dashboard-stats calculation-time)
+                           (show-status (str "Core DWBA calculations completed in " calculation-time "ms") "success"))
+                         (show-status (str "Error: " (or (aget basic-result "error") "Calculation failed")) "error")))
               (.catch (fn [error]
                         (js/console.error "Calculation error:" error)
-                        (show-status (str "Error: " (.-message error)) "error")
-                        (set! (.-disabled calculate-btn) false)
-                        (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-calculator\"></i> Calculate DWBA")))))))))
+                        (show-status (str "Error: " (.-message error)) "error")))
+              (.finally (fn []
+                          (set! (.-disabled calculate-btn) false)
+                          (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-calculator\"></i> Calculate DWBA"))))
+
+          ;; Elastic scattering only
+          :elastic
+          (-> (js/fetch (str api-base "/api/elastic")
+                        (clj->js {:method "POST"
+                                  :headers {"Content-Type" "application/json"}
+                                  :body (js/JSON.stringify (clj->js params))}))
+              (.then (fn [r] (.json r)))
+              (.then (fn [result]
+                       (if (aget result "success")
+                         (let [elastic-data (js->clj (aget result "data" "elastic") :keywordize-keys true)
+                               calculation-time (- (js/Date.now) start-time)
+                               current-data (:current-data @dashboard-state)
+                               merged (merge (or current-data {}) {:elastic elastic-data})]
+                           (swap! dashboard-state assoc :current-data merged)
+                           (update-all-plots)
+                           (show-status (str "Elastic scattering calculated in " calculation-time "ms") "success"))
+                         (show-status (str "Error: " (or (aget result "error") "Elastic calculation failed")) "error")))
+              (.catch (fn [error]
+                        (js/console.error "Elastic calculation error:" error)
+                        (show-status (str "Error: " (.-message error)) "error")))
+              (.finally (fn []
+                          (set! (.-disabled calculate-btn) false)
+                          (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-calculator\"></i> Calculate DWBA"))))
+
+          ;; Inelastic scattering only
+          :inelastic
+          (-> (js/fetch (str api-base "/api/inelastic")
+                        (clj->js {:method "POST"
+                                  :headers {"Content-Type" "application/json"}
+                                  :body (js/JSON.stringify (clj->js params))}))
+              (.then (fn [r] (.json r)))
+              (.then (fn [result]
+                       (if (aget result "success")
+                         (let [inelastic-data (js->clj (aget result "data" "inelastic") :keywordize-keys true)
+                               calculation-time (- (js/Date.now) start-time)
+                               current-data (:current-data @dashboard-state)
+                               merged (merge (or current-data {}) {:inelastic inelastic-data})]
+                           (swap! dashboard-state assoc :current-data merged)
+                           (update-all-plots)
+                           (show-status (str "Inelastic scattering calculated in " calculation-time "ms") "success"))
+                         (show-status (str "Error: " (or (aget result "error") "Inelastic calculation failed")) "error")))
+              (.catch (fn [error]
+                        (js/console.error "Inelastic calculation error:" error)
+                        (show-status (str "Error: " (.-message error)) "error")))
+              (.finally (fn []
+                          (set! (.-disabled calculate-btn) false)
+                          (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-calculator\"></i> Calculate DWBA"))))
+
+          ;; Transfer reactions only
+          :transfer
+          (-> (js/fetch (str api-base "/api/transfer")
+                        (clj->js {:method "POST"
+                                  :headers {"Content-Type" "application/json"}
+                                  :body (js/JSON.stringify (clj->js params))}))
+              (.then (fn [r] (.json r)))
+              (.then (fn [result]
+                       (if (aget result "success")
+                         (let [transfer-data (js->clj (aget result "data" "transfer") :keywordize-keys true)
+                               calculation-time (- (js/Date.now) start-time)
+                               current-data (:current-data @dashboard-state)
+                               merged (merge (or current-data {}) {:transfer transfer-data})]
+                           (swap! dashboard-state assoc :current-data merged)
+                           (update-all-plots)
+                           (show-status (str "Transfer reaction calculated in " calculation-time "ms") "success"))
+                         (show-status (str "Error: " (or (aget result "error") "Transfer calculation failed")) "error")))
+              (.catch (fn [error]
+                        (js/console.error "Transfer calculation error:" error)
+                        (show-status (str "Error: " (.-message error)) "error")))
+              (.finally (fn []
+                          (set! (.-disabled calculate-btn) false)
+                          (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-calculator\"></i> Calculate DWBA"))))
+
+          ;; Default: fall back to core calculation
+          (do
+            (js/console.warn "Unknown active tab, defaulting to core calculation" (str active-tab))
+            (set! (.-disabled calculate-btn) false)
+            (set! (.-innerHTML calculate-btn) "<i class=\"fas fa-calculator\"></i> Calculate DWBA"))))))))
+
+;; Normalize API data keys (backend may send phase_shifts or phase-shifts etc.)
+(defn normalize-data-keys [data]
+  (when data
+    {:phase_shifts (or (:phase_shifts data) (:phase-shifts data))
+     :r_matrices (or (:r_matrices data) (:r-matrices data))
+     :potentials (:potentials data)
+     :cross_sections (or (:cross_sections data) (:cross-sections data))
+     :elastic (:elastic data)
+     :inelastic (:inelastic data)
+     :transfer (:transfer data)
+     :parameters (:parameters data)}))
 
 ;; Update all plots
 (defn update-all-plots []
-  (let [current-data (:current-data @dashboard-state)]
+  (let [raw (:current-data @dashboard-state)
+        current-data (normalize-data-keys raw)]
     (when current-data
       (plot-phase-shifts)
       (plot-r-matrices)
@@ -218,7 +283,7 @@
 
 ;; Plot phase shifts
 (defn plot-phase-shifts []
-  (let [data (:phase-shifts (:current-data @dashboard-state))
+  (let [data (:phase_shifts (:current-data @dashboard-state))
         traces (reduce (fn [traces point]
                          (let [L (:L point)]
                            (update traces L
@@ -226,9 +291,9 @@
                                       (if trace
                                         (-> trace
                                             (update :x conj (:energy point))
-                                            (update :y conj (* (:phase-shift point) (/ 180 js/Math.PI))))
+                                            (update :y conj (* (:phase_shift point) (/ 180 js/Math.PI))))
                                         {:x [(:energy point)]
-                                         :y [(* (:phase-shift point) (/ 180 js/Math.PI))]
+                                         :y [(* (:phase_shift point) (/ 180 js/Math.PI))]
                                          :name (str "L = " L)
                                          :type "scatter"
                                          :mode "lines+markers"
@@ -248,7 +313,7 @@
 
 ;; Plot R-matrices
 (defn plot-r-matrices []
-  (let [data (:r-matrices (:current-data @dashboard-state))
+  (let [data (:r_matrices (:current-data @dashboard-state))
         traces (reduce (fn [traces point]
                          (let [L (:L point)]
                            (update traces L
@@ -256,16 +321,16 @@
                                       (if trace
                                         (-> trace
                                             (update-in [:nuclear :x] conj (:energy point))
-                                            (update-in [:nuclear :y] conj (:r-nuclear point))
+                                            (update-in [:nuclear :y] conj (:r_nuclear point))
                                             (update-in [:coulomb-nuclear :x] conj (:energy point))
-                                            (update-in [:coulomb-nuclear :y] conj (:r-coulomb-nuclear point)))
+                                            (update-in [:coulomb-nuclear :y] conj (:r_coulomb_nuclear point)))
                                         {:nuclear {:x [(:energy point)]
-                                                   :y [(:r-nuclear point)]
+                                                   :y [(:r_nuclear point)]
                                                    :name (str "L = " L " (Nuclear)")
                                                    :type "scatter"
                                                    :mode "lines+markers"}
                                          :coulomb-nuclear {:x [(:energy point)]
-                                                          :y [(:r-coulomb-nuclear point)]
+                                                          :y [(:r_coulomb_nuclear point)]
                                                           :name (str "L = " L " (Coul+Nuc)")
                                                           :type "scatter"
                                                           :mode "lines+markers"
@@ -286,7 +351,7 @@
 (defn plot-potentials []
   (let [data (:potentials (:current-data @dashboard-state))
         woods-saxon (clj->js {:x (map :radius data)
-                              :y (map :woods-saxon data)
+                              :y (map :woods_saxon data)
                               :name "Woods-Saxon"
                               :type "scatter"
                               :mode "lines"
@@ -315,9 +380,9 @@
 
 ;; Plot cross sections
 (defn plot-cross-sections []
-  (let [data (:cross-sections (:current-data @dashboard-state))
+  (let [data (:cross_sections (:current-data @dashboard-state))
         trace (clj->js {:x (map :energy data)
-                        :y (map :total-cross-section data)
+                        :y (map :total_cross_section data)
                         :name "Total Cross-Section"
                         :type "scatter"
                         :mode "lines+markers"
@@ -335,9 +400,9 @@
 ;; Plot dashboard
 (defn plot-dashboard []
   (let [current-data (:current-data @dashboard-state)
-        phase-data (:phase-shifts current-data)
+        phase-data (:phase_shifts current-data)
         potential-data (:potentials current-data)
-        cross-section-data (:cross-sections current-data)
+        cross-section-data (:cross_sections current-data)
         phase-traces (reduce (fn [traces point]
                                (let [L (:L point)]
                                  (update traces L
@@ -345,9 +410,9 @@
                                             (if trace
                                               (-> trace
                                                   (update :x conj (:energy point))
-                                                  (update :y conj (* (:phase-shift point) (/ 180 js/Math.PI))))
+                                                  (update :y conj (* (:phase_shift point) (/ 180 js/Math.PI))))
                                               {:x [(:energy point)]
-                                               :y [(* (:phase-shift point) (/ 180 js/Math.PI))]
+                                               :y [(* (:phase_shift point) (/ 180 js/Math.PI))]
                                                :name (str "L = " L)
                                                :type "scatter"
                                                :mode "lines+markers"
@@ -355,7 +420,7 @@
                              {} phase-data)
         traces (clj->js (concat (vals phase-traces)
                                 [(clj->js {:x (map :radius potential-data)
-                                            :y (map :woods-saxon potential-data)
+                                            :y (map :woods_saxon potential-data)
                                             :name "Woods-Saxon"
                                             :type "scatter"
                                             :mode "lines"
@@ -371,7 +436,7 @@
                                            :yaxis "y2"
                                            :showlegend false})
                                  (clj->js {:x (map :energy cross-section-data)
-                                           :y (map :total-cross-section cross-section-data)
+                                           :y (map :total_cross_section cross-section-data)
                                            :name "Cross-Section"
                                            :type "scatter"
                                            :mode "lines"
@@ -492,13 +557,14 @@
 (defn update-dashboard-stats [calculation-time]
   (let [current-data (:current-data @dashboard-state)]
     (when current-data
-      (let [total-points (count (:phase-shifts current-data))
-            energies (map :energy (:phase-shifts current-data))
-            l-values (distinct (map :L (:phase-shifts current-data)))]
-        (set-text! "total-points" (str total-points))
-        (set-text! "energy-range-display" (str (apply min energies) "-" (apply max energies)))
-        (set-text! "L-count" (str (count l-values)))
-        (set-text! "calculation-time" (str calculation-time "ms"))))))
+      (when-let [phase-data (seq (:phase_shifts current-data))]
+        (let [total-points (count phase-data)
+              energies (map :energy phase-data)
+              l-values (distinct (map :L phase-data))]
+          (set-text! "total-points" (str total-points))
+          (set-text! "energy-range-display" (str (apply min energies) "-" (apply max energies)))
+          (set-text! "L-count" (str (count l-values)))
+          (set-text! "calculation-time" (str calculation-time "ms")))))))
 
 ;; Reset parameters
 (defn reset-parameters []

@@ -1,10 +1,36 @@
 // DWBA Web Dashboard JavaScript
 class DWBADashboard {
     constructor() {
-        this.apiBase = '';
+        // Always send API requests to the dashboard server (port 3000) unless we're already on it
+        const dashboardUrl = 'http://localhost:3000';
+        const apiFromQuery = new URLSearchParams(window.location.search).get('api');
+        const onDashboard = window.location.origin === 'http://localhost:3000';
+        this.apiBase = apiFromQuery || (onDashboard ? '' : dashboardUrl);
         this.currentData = null;
         this.initializeEventListeners();
         this.loadDefaultParameters();
+        this.checkApiHealth();
+        if (!onDashboard && !apiFromQuery) {
+            this.showApiNotice(dashboardUrl);
+        }
+    }
+
+    showApiNotice(dashboardUrl) {
+        const statusDiv = document.getElementById('status-messages');
+        if (!statusDiv) return;
+        statusDiv.innerHTML = '<div class="alert alert-info mb-0" role="alert"><strong>Calculations use the dashboard server.</strong> Start it with: <code>cd web-dashboard && lein run</code>. Then <a href="' + dashboardUrl + '" class="alert-link">open this app from ' + dashboardUrl + '</a> so the page and API come from the same server.</div>';
+    }
+
+    async checkApiHealth() {
+        try {
+            const r = await fetch(`${this.apiBase}/api/health`);
+            if (!r.ok) throw new Error('API not OK');
+        } catch (e) {
+            const statusDiv = document.getElementById('status-messages');
+            if (statusDiv) {
+                statusDiv.innerHTML = '<div class="error"><i class="fas fa-exclamation-triangle"></i> Dashboard API not reachable. Start the server: <code>cd web-dashboard && lein run</code>, then <a href="http://localhost:3000">open http://localhost:3000</a> in your browser.</div>';
+            }
+        }
     }
 
     initializeEventListeners() {
@@ -20,15 +46,68 @@ class DWBADashboard {
             });
         });
 
-        // Calculate button
-        document.getElementById('calculate-btn').addEventListener('click', () => {
-            this.calculateDWBA();
-        });
-
         // Reset button
         document.getElementById('reset-btn')?.addEventListener('click', () => {
             this.resetParameters();
         });
+
+        // Calculate buttons (one per tab) – bound in JS so no globals needed
+        const calcButtons = [
+            ['calculate-phase-btn', 'calculatePhase'],
+            ['calculate-rmatrix-btn', 'calculateRMatrix'],
+            ['calculate-potential-btn', 'calculatePotentials'],
+            ['calculate-cross-section-btn', 'calculateCrossSections'],
+            ['calculate-elastic-btn', 'calculateElastic'],
+            ['calculate-inelastic-btn', 'calculateInelastic'],
+            ['calculate-transfer-btn', 'calculateTransfer'],
+            ['calculate-dashboard-btn', 'calculateDashboard']
+        ];
+        calcButtons.forEach(([id, method]) => {
+            const btn = document.getElementById(id);
+            if (btn) btn.addEventListener('click', () => this[method]());
+        });
+    }
+
+    _setButtonLoading(btnId, loading) {
+        const btn = document.getElementById(btnId);
+        if (!btn) return;
+        btn.disabled = loading;
+        btn.innerHTML = loading ? '<i class="fas fa-spinner fa-spin"></i> Calculating...' : '<i class="fas fa-calculator"></i> Calculate';
+    }
+
+    async _post(url, params) {
+        const fullUrl = `${this.apiBase}${url}`;
+        const response = await fetch(fullUrl, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(params)
+        });
+        const text = await response.text();
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
+        }
+        let result;
+        try {
+            result = JSON.parse(text);
+        } catch (e) {
+            throw new Error('Invalid JSON response: ' + text.slice(0, 200));
+        }
+        return result;
+    }
+
+    /** Normalize API response so we always have underscore keys (phase_shifts, r_matrices, etc.) */
+    _normalizeData(data) {
+        if (!data) return data;
+        return {
+            phase_shifts: data.phase_shifts || data.phaseShifts || data['phase-shifts'],
+            r_matrices: data.r_matrices || data.rMatrices || data['r-matrices'],
+            potentials: data.potentials,
+            cross_sections: data.cross_sections || data.crossSections || data['cross-sections'],
+            parameters: data.parameters,
+            elastic: data.elastic,
+            inelastic: data.inelastic,
+            transfer: data.transfer
+        };
     }
 
     async loadDefaultParameters() {
@@ -96,78 +175,94 @@ class DWBADashboard {
             </div>
         `;
         
-        // Auto-hide after 5 seconds
+        // Auto-hide after 8 seconds (longer so user sees success/error)
         setTimeout(() => {
             statusDiv.innerHTML = '';
-        }, 5000);
+        }, 8000);
     }
 
-    async calculateDWBA() {
+    async _runCoreCalculation(btnId) {
+        const params = this.getParameters();
+        if (params.energies.length === 0 || params.L_values.length === 0) {
+            this.showStatus('Please provide valid energy range and angular momenta', 'error');
+            return;
+        }
+        this._setButtonLoading(btnId, true);
+        this.showStatus('Calculating...', 'info');
         const startTime = Date.now();
-        const calculateBtn = document.getElementById('calculate-btn');
-        
         try {
-            // Show loading state
-            calculateBtn.disabled = true;
-            calculateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Calculating...';
-            this.showStatus('Performing DWBA calculations...', 'info');
-
-            const params = this.getParameters();
-            
-            // Validate parameters
-            if (params.energies.length === 0 || params.L_values.length === 0) {
-                throw new Error('Please provide valid energy range and angular momenta');
+            const result = await this._post('/api/calculate', params);
+            if (!result.success) throw new Error(result.error || 'Calculation failed');
+            this.currentData = this._normalizeData(result.data);
+            if (!this.currentData) throw new Error('No data in response');
+            const n = (this.currentData.phase_shifts || []).length;
+            console.log('Core calculation OK, data keys:', Object.keys(this.currentData), 'phase_shifts count:', n);
+            if (n === 0) {
+                this.showStatus('Calculation returned no data points. Check energy range and L-values.', 'error');
+                return;
             }
-
-            // Calculate all reaction types in parallel
-            const [basicResult, elasticResult, inelasticResult, transferResult] = await Promise.all([
-                fetch(`${this.apiBase}/api/calculate`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(params)
-                }).then(r => r.json()),
-                fetch(`${this.apiBase}/api/elastic`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(params)
-                }).then(r => r.json()),
-                fetch(`${this.apiBase}/api/inelastic`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(params)
-                }).then(r => r.json()),
-                fetch(`${this.apiBase}/api/transfer`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(params)
-                }).then(r => r.json())
-            ]);
-
-            const calculationTime = Date.now() - startTime;
-
-            // Combine all results
-            if (basicResult.success) {
-                this.currentData = basicResult.data;
-                if (elasticResult.success) this.currentData.elastic = elasticResult.data.elastic;
-                if (inelasticResult.success) this.currentData.inelastic = inelasticResult.data.inelastic;
-                if (transferResult.success) this.currentData.transfer = transferResult.data.transfer;
-                
+            try {
                 this.updateAllPlots();
-                this.updateDashboardStats(calculationTime);
-                this.showStatus(`Calculation completed successfully in ${calculationTime}ms`, 'success');
-            } else {
-                throw new Error(basicResult.error || 'Calculation failed');
+                this.updateDashboardStats(Date.now() - startTime);
+                this.showStatus(`Done in ${Date.now() - startTime}ms — ${n} points plotted.`, 'success');
+            } catch (plotError) {
+                console.error('Plot error:', plotError);
+                this.showStatus(`Data received but plot failed: ${plotError.message}`, 'error');
             }
-
         } catch (error) {
             console.error('Calculation error:', error);
-            this.showStatus(`Error: ${error.message}`, 'error');
+            let msg = error.message;
+            if (msg.includes('404')) {
+                msg = 'API not found. Start the server: cd web-dashboard && lein run — then open http://localhost:3000 in your browser (click the link above).';
+            }
+            this.showStatus(`Error: ${msg}`, 'error');
         } finally {
-            // Reset button state
-            calculateBtn.disabled = false;
-            calculateBtn.innerHTML = '<i class="fas fa-calculator"></i> Calculate DWBA';
+            this._setButtonLoading(btnId, false);
         }
     }
+
+    async _runTabCalculation(btnId, path, dataKey) {
+        const params = this.getParameters();
+        if (params.energies.length === 0 || params.L_values.length === 0) {
+            this.showStatus('Please provide valid energy range and angular momenta', 'error');
+            return;
+        }
+        this._setButtonLoading(btnId, true);
+        this.showStatus('Calculating...', 'info');
+        const startTime = Date.now();
+        try {
+            const result = await this._post(path, params);
+            if (!result.success) throw new Error(result.error || 'Calculation failed');
+            this.currentData = this.currentData || {};
+            const raw = result.data && (result.data[dataKey] || result.data[dataKey.replace(/_/g, '-')]);
+            if (raw) this.currentData[dataKey] = raw;
+            this.updateAllPlots();
+            if (dataKey === 'elastic' || dataKey === 'inelastic' || dataKey === 'transfer') {
+                this.showStatus(`Done in ${Date.now() - startTime}ms`, 'success');
+            } else {
+                this.updateDashboardStats(Date.now() - startTime);
+                this.showStatus(`Done in ${Date.now() - startTime}ms`, 'success');
+            }
+        } catch (error) {
+            console.error('Calculation error:', error);
+            let msg = error.message;
+            if (msg.includes('404')) {
+                msg = 'API not found. Start the server: cd web-dashboard && lein run — then open http://localhost:3000 in your browser (click the link above).';
+            }
+            this.showStatus(`Error: ${msg}`, 'error');
+        } finally {
+            this._setButtonLoading(btnId, false);
+        }
+    }
+
+    async calculatePhase() { await this._runCoreCalculation('calculate-phase-btn'); }
+    async calculateRMatrix() { await this._runCoreCalculation('calculate-rmatrix-btn'); }
+    async calculatePotentials() { await this._runCoreCalculation('calculate-potential-btn'); }
+    async calculateCrossSections() { await this._runCoreCalculation('calculate-cross-section-btn'); }
+    async calculateDashboard() { await this._runCoreCalculation('calculate-dashboard-btn'); }
+    async calculateElastic() { await this._runTabCalculation('calculate-elastic-btn', '/api/elastic', 'elastic'); }
+    async calculateInelastic() { await this._runTabCalculation('calculate-inelastic-btn', '/api/inelastic', 'inelastic'); }
+    async calculateTransfer() { await this._runTabCalculation('calculate-transfer-btn', '/api/transfer', 'transfer'); }
 
     updateAllPlots() {
         if (!this.currentData) return;
@@ -183,12 +278,22 @@ class DWBADashboard {
     }
 
     plotPhaseShifts() {
-        const data = this.currentData.phase_shifts;
+        const data = this.currentData.phase_shifts || this.currentData['phase-shifts'] || this.currentData.phaseShifts;
+        if (!data || !Array.isArray(data) || data.length === 0) {
+            console.warn('plotPhaseShifts: no data', { hasData: !!data, length: data?.length });
+            return;
+        }
+        const el = document.getElementById('phase-plot');
+        if (!el) {
+            console.error('plotPhaseShifts: div #phase-plot not found');
+            return;
+        }
         const traces = {};
-
-        // Group data by angular momentum
         data.forEach(point => {
             const L = point.L;
+            const phaseShift = point.phase_shift != null ? point.phase_shift : point.phaseShift;
+            const energy = point.energy;
+            if (L === undefined || (phaseShift === undefined && phaseShift !== 0)) return;
             if (!traces[L]) {
                 traces[L] = {
                     x: [],
@@ -200,11 +305,15 @@ class DWBADashboard {
                     marker: { size: 6 }
                 };
             }
-            traces[L].x.push(point.energy);
-            traces[L].y.push(point.phase_shift * 180 / Math.PI); // Convert to degrees
+            traces[L].x.push(Number(energy));
+            traces[L].y.push((Number(phaseShift) || 0) * 180 / Math.PI);
         });
 
         const plotData = Object.values(traces);
+        if (plotData.length === 0) {
+            console.warn('plotPhaseShifts: no traces after processing');
+            return;
+        }
         const layout = {
             title: 'Nuclear Phase Shifts vs Energy',
             xaxis: { title: 'Energy (MeV)', gridcolor: '#e0e0e0' },
@@ -216,11 +325,17 @@ class DWBADashboard {
             margin: { t: 50, b: 50, l: 60, r: 30 }
         };
 
-        Plotly.newPlot('phase-plot', plotData, layout, {responsive: true});
+        try {
+            if (typeof Plotly === 'undefined') throw new Error('Plotly not loaded');
+            Plotly.newPlot('phase-plot', plotData, layout, {responsive: true});
+        } catch (err) {
+            console.error('Plotly.newPlot failed:', err);
+        }
     }
 
     plotRMatrices() {
-        const data = this.currentData.r_matrices;
+        const data = this.currentData.r_matrices || this.currentData['r-matrices'];
+        if (!data || !Array.isArray(data) || data.length === 0) return;
         const traces = {};
 
         data.forEach(point => {
@@ -258,7 +373,8 @@ class DWBADashboard {
 
     plotPotentials() {
         const data = this.currentData.potentials;
-        
+        if (!data || !Array.isArray(data) || data.length === 0) return;
+
         const woodsSaxon = {
             x: data.map(p => p.radius),
             y: data.map(p => p.woods_saxon),
@@ -301,8 +417,9 @@ class DWBADashboard {
     }
 
     plotCrossSections() {
-        const data = this.currentData.cross_sections;
-        
+        const data = this.currentData.cross_sections || this.currentData['cross-sections'];
+        if (!data || !Array.isArray(data) || data.length === 0) return;
+
         const trace = {
             x: data.map(p => p.energy),
             y: data.map(p => p.total_cross_section),
@@ -328,9 +445,10 @@ class DWBADashboard {
 
     plotDashboard() {
         // Create a comprehensive dashboard with multiple subplots
-        const phaseData = this.currentData.phase_shifts;
+        const phaseData = this.currentData.phase_shifts || this.currentData['phase-shifts'];
         const potentialData = this.currentData.potentials;
-        const crossSectionData = this.currentData.cross_sections;
+        const crossSectionData = this.currentData.cross_sections || this.currentData['cross-sections'];
+        if (!phaseData?.length || !potentialData?.length || !crossSectionData?.length) return;
 
         // Phase shifts (grouped by L)
         const phaseTraces = {};
@@ -531,10 +649,12 @@ class DWBADashboard {
 
     updateDashboardStats(calculationTime) {
         if (!this.currentData) return;
+        const phaseShifts = this.currentData.phase_shifts || this.currentData['phase-shifts'];
+        if (!phaseShifts?.length) return;
 
-        const totalPoints = this.currentData.phase_shifts.length;
-        const energies = this.currentData.phase_shifts.map(p => p.energy);
-        const LValues = [...new Set(this.currentData.phase_shifts.map(p => p.L))];
+        const totalPoints = phaseShifts.length;
+        const energies = phaseShifts.map(p => p.energy);
+        const LValues = [...new Set(phaseShifts.map(p => p.L))];
 
         document.getElementById('total-points').textContent = totalPoints;
         document.getElementById('energy-range-display').textContent = 
@@ -549,16 +669,6 @@ class DWBADashboard {
     }
 }
 
-// Global functions for HTML onclick handlers
-function calculateDWBA() {
-    dashboard.calculateDWBA();
-}
-
-function resetParameters() {
-    dashboard.resetParameters();
-}
-
-// Initialize dashboard when page loads
 let dashboard;
 document.addEventListener('DOMContentLoaded', () => {
     dashboard = new DWBADashboard();
