@@ -84,46 +84,59 @@
       E-CM-f (+ E-CM-i Q-value)  ; Exit CM energy = E_i + Q (Q can be negative for endothermic reactions)
       
       ;; ============================================================================
-      ;; Distorted Waves (with Coulomb potential)
+      ;; Distorted Waves and Transfer Amplitudes (multiple L for angular dependence)
       ;; ============================================================================
-      
-      ;; Calculate distorted waves with Coulomb potential
-      ;; Entrance channel: p + 16O (Z1=1, Z2=8)
-      ;; Exit channel: d + 15O (Z1=1, Z2=8)
-      L-i 0  ; Entrance channel angular momentum
-      L-f 0  ; Exit channel angular momentum
       
       ;; Lab energies for optical potential calculation
       E-lab-i E-lab  ; Entrance channel lab energy
       E-lab-f (* E-CM-f (/ (+ m-d m-15O) m-15O))  ; Exit channel lab energy (approximate)
       
-      ;; Calculate distorted waves with optical potentials including Coulomb
+      ;; Include partial waves L = 0 .. L-max so dσ/dΩ depends on angle (e.g. drop at 70°)
+      L-max 7
+      D0 (t/zero-range-constant :p-d)  ; D₀ for (p,d) reaction
+      ;; Build T-amplitudes map {L → T_L} for L = 0, 1, ..., L-max
+      T-amplitudes (into {}
+                        (for [L (range (inc L-max))]
+                          (let [chi-i (inel/distorted-wave-entrance E-CM-i L nil h r-max
+                                                                    :projectile-type :p
+                                                                    :target-A 16
+                                                                    :target-Z 8
+                                                                    :E-lab E-lab-i
+                                                                    :s 0.5
+                                                                    :j (+ L 0.5)
+                                                                    :mass-factor mass-factor-i)
+                                chi-f (inel/distorted-wave-exit E-CM-i Q-value L nil h r-max
+                                                                :outgoing-type :d
+                                                                :residual-A 15
+                                                                :residual-Z 8
+                                                                :E-lab E-lab-f
+                                                                :s 1
+                                                                :j (inc L)
+                                                                :mass-factor mass-factor-f)
+                                T-L (t/transfer-amplitude-post chi-i chi-f phi-i phi-f r-max h
+                                                               :zero-range D0)]
+                            [L T-L])))
+      
+      ;; Keep L=0 waves for display (Step 3)
+      L-i 0
+      L-f 0
       chi-i (inel/distorted-wave-entrance E-CM-i L-i nil h r-max
                                           :projectile-type :p
                                           :target-A 16
                                           :target-Z 8
                                           :E-lab E-lab-i
-                                          :s 0.5  ; Proton spin
-                                          :j 0.5  ; Total angular momentum (L=0, s=0.5)
+                                          :s 0.5
+                                          :j 0.5
                                           :mass-factor mass-factor-i)
-      
       chi-f (inel/distorted-wave-exit E-CM-i Q-value L-f nil h r-max
                                       :outgoing-type :d
                                       :residual-A 15
                                       :residual-Z 8
                                       :E-lab E-lab-f
-                                      :s 1      ; Deuteron spin
-                                      :j 1      ; Total angular momentum (L=0, s=1)
+                                      :s 1
+                                      :j 1
                                       :mass-factor mass-factor-f)
-      
-      ;; ============================================================================
-      ;; Transfer Amplitude (Post Formulation)
-      ;; ============================================================================
-      
-      ;; Zero-range constant for (p,d) reaction
-      D0 (t/zero-range-constant :p-d)  ; D₀ for (p,d) reaction
-      T-post (t/transfer-amplitude-post chi-i chi-f phi-i phi-f r-max h 
-                                        :zero-range D0)
+      T-post (get T-amplitudes 0)  ; Same as T for L=0
       
       ;; ============================================================================
       ;; Differential Cross Section
@@ -135,15 +148,15 @@
       
       ;; Spectroscopic factor (typically 0 < S < 1, using 1.0 for this example)
       S-factor 1.0
-      
-      ;; Calculate differential cross section at specific angle
-      ;; For L=0 transfer, we use {0 → T_post} as the amplitude map
-      theta-deg 0.0  ; Scattering angle in degrees (0° = forward)
-      theta-rad (* theta-deg (/ Math/PI 180.0))  ; Convert to radians
-      T-amplitudes {0 T-post}  ; Map of {L → T_L}, for L=0 only
-      ;; Use angular-dependent cross section function
+      theta-deg 0.0  ; Forward angle (degrees)
+      theta-rad (* theta-deg (/ Math/PI 180.0))
       dsigma (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f 
-                                                           theta-rad mass-factor-i mass-factor-f)]
+                                                           theta-rad mass-factor-i mass-factor-f)
+      ;; At 70° (compare to experiment: ~0.5 mb/sr at 20 MeV)
+      theta-70-deg 70.0
+      theta-70-rad (* theta-70-deg (/ Math/PI 180.0))
+      dsigma-70 (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f 
+                                                               theta-70-rad mass-factor-i mass-factor-f)]
   
   ;; ============================================================================
   ;; Output
@@ -224,15 +237,21 @@
     (println (format "  |∫ χ*_i · χ_f dr| = %.6e" (mag integral-chi))))
   (println "")
   
-  (println "=== Step 4: Transfer Amplitude (Post Formulation) ===")
+  (println "=== Step 4: Transfer Amplitudes (Post Formulation) ===")
   (println (format "Zero-range constant: D₀ = %.2f MeV·fm^(3/2)" D0))
+  (println (format "Partial waves included: L = 0 .. %d" L-max))
   (println "")
-  
-  (println "Transfer amplitude (post formulation):")
+  (println "Transfer amplitude L=0 (post formulation):")
   (if (number? T-post)
-    (println (format "  T_post = %.6e" T-post))
-    (println (format "  T_post = %.6e + i%.6e" (re T-post) (im T-post))))
-  (println (format "  |T_post| = %.6e" (if (number? T-post) (Math/abs T-post) (mag T-post))))
+    (println (format "  T_0 = %.6e" T-post))
+    (println (format "  T_0 = %.6e + i%.6e" (re T-post) (im T-post))))
+  (println (format "  |T_0| = %.6e" (if (number? T-post) (Math/abs T-post) (mag T-post))))
+  (println "")
+  (println "|T_L| for all L (used in angular distribution):")
+  (doseq [L (range (inc L-max))]
+    (let [T-L (get T-amplitudes L)
+          mag-T (if (number? T-L) (Math/abs T-L) (mag T-L))]
+      (println (format "  L = %2d: |T_L| = %.6e" L mag-T))))
   (println "")
   
   (println "=== Step 5: Differential Cross Section ===")
@@ -247,15 +266,18 @@
   (println "Differential cross section:")
   (println (format "  dσ/dΩ(θ=%.1f°) = %.6e fm²/sr" theta-deg dsigma))
   (println (format "  dσ/dΩ(θ=%.1f°) = %.6e mb/sr (1 mb = 10 fm²)" theta-deg (* dsigma 10.0)))
+  (println (format "  dσ/dΩ(θ=%.1f°) = %.6e fm²/sr" theta-70-deg dsigma-70))
+  (println (format "  dσ/dΩ(θ=%.1f°) = %.6e mb/sr (experiment at 20 MeV, 70°: ~0.5 mb/sr)" theta-70-deg (* dsigma-70 10.0)))
   (println "")
-  
+
   (println "=== Summary ===")
   (println (format "Reaction: 16O(p,d)15O"))
   (println (format "Incident energy: E_lab = %.2f MeV" E-lab))
   (println (format "Normalized overlap: %.6f" overlap-norm))
-  (println (format "Transfer amplitude: |T_post| = %.6e" 
+  (println (format "Transfer amplitude: |T_post| = %.6e"
                   (if (number? T-post) (Math/abs T-post) (mag T-post))))
-  (println (format "Differential cross section: dσ/dΩ = %.6e mb/sr" (* dsigma 10.0)))
+  (println (format "Differential cross section: dσ/dΩ(0°) = %.6e mb/sr" (* dsigma 10.0)))
+  (println (format "Differential cross section: dσ/dΩ(70°) = %.6e mb/sr" (* dsigma-70 10.0)))
   (println "")
   (println "=== Calculation Complete ===")
   
