@@ -1,5 +1,5 @@
 (ns dwba-web.simple-core
-  (:require [compojure.core :refer [defroutes GET POST OPTIONS]]
+  (:require [compojure.core :refer [routes GET POST OPTIONS]]
             [compojure.route :as route]
             [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
             [ring.middleware.cors :refer [wrap-cors]]
@@ -73,6 +73,86 @@
     (str/ends-with? filename ".map")  "application/json"
     :else "application/octet-stream"))
 
+(defn- query-param [request param-name]
+  (when-let [q (str (:query-string request))]
+    (when-let [match (re-find (re-pattern (str (str/replace param-name #"\s" "") "=([^&]*)")) q)]
+      (str/trim (second match)))))
+
+;; Target nucleus params for (p,d) default plot
+(def ^:private transfer-targets
+  {"16O" {:A 16 :Z 8 :residual-A 15 :m-target 14899.0 :m-residual 13975.0
+          :Q (+ 938.27 14899.0 (- 1876.136) (- 13975.0))
+          :Es-i -15.67 :Es-f -2.214 :label "16O(p,d)15O"}
+   "12C" {:A 12 :Z 6 :residual-A 11 :m-target 11178.0 :m-residual 10257.0
+          :Q (+ 938.27 11178.0 (- 1876.136) (- 10257.0))
+          :Es-i -16.0 :Es-f -2.0 :label "12C(p,d)11C"}})
+
+(defn- transfer-default-data
+  "Build default (p,d) DCS data for a target. Returns {:label ... :transfer (vec of {:energy :angle :differential_cross_section})}."
+  [target]
+  (let [{:keys [A Z residual-A m-target m-residual Q Es-i Es-f label]} target]
+    (when-not (find-ns 'dwba.transfer) (require 'dwba.transfer))
+    (when-not (find-ns 'dwba.form-factors) (require 'dwba.form-factors))
+    (when-not (find-ns 'dwba.inelastic) (require 'dwba.inelastic))
+    (let [t (resolve 'dwba.transfer/transfer-differential-cross-section-angular)
+          t-post (resolve 'dwba.transfer/transfer-amplitude-post)
+          t-zero (resolve 'dwba.transfer/zero-range-constant)
+          inel-entrance (resolve 'dwba.inelastic/distorted-wave-entrance)
+          inel-exit (resolve 'dwba.inelastic/distorted-wave-exit)
+          solve-num (resolve 'dwba.transfer/solve-bound-state-numerov)
+          normalize (resolve 'dwba.transfer/normalize-bound-state)
+          r-max 20.0, h 0.01, l-i 1, l-f 0
+          v0-i 62.0, R0-i 2.7, diff-i 0.6
+          v0-f 50.0, R0-f 1.5, diff-f 0.6
+          m-f 0.048
+          phi-i (normalize (solve-num Es-i l-i v0-i R0-i diff-i m-f h r-max) h)
+          phi-f (normalize (solve-num Es-f l-f v0-f R0-f diff-f m-f h r-max) h)
+          E-lab 20.0, m-p 938.27, m-d 1876.136
+          mu-i (/ (* m-p m-target) (+ m-p m-target))
+          mu-f (/ (* m-d m-residual) (+ m-d m-residual))
+          mass-factor-i (/ (* 2.0 mu-i) (* 197.7 197.7))
+          mass-factor-f (/ (* 2.0 mu-f) (* 197.7 197.7))
+          E-CM-i (* E-lab (/ m-target (+ m-target m-p)))
+          E-CM-f (+ E-CM-i Q)
+          E-lab-f (* E-CM-f (/ (+ m-d m-residual) m-residual))
+          L-max 7
+          D0 (t-zero :p-d)
+          T-amplitudes (into {}
+                           (for [L (range (inc L-max))]
+                             (let [chi-i (inel-entrance E-CM-i L nil h r-max
+                                                        :projectile-type :p :target-A A :target-Z Z
+                                                        :E-lab E-lab :s 0.5 :j (+ L 0.5) :mass-factor mass-factor-i)
+                                   chi-f (inel-exit E-CM-i Q L nil h r-max
+                                                    :outgoing-type :d :residual-A residual-A :residual-Z Z
+                                                    :E-lab E-lab-f :s 1 :j (inc L) :mass-factor mass-factor-f)
+                                   T-L (t-post chi-i chi-f phi-i phi-f r-max h :zero-range D0)]
+                               [L T-L])))
+          k-i (Math/sqrt (* mass-factor-i E-CM-i))
+          k-f (Math/sqrt (* mass-factor-f E-CM-f))
+          S-factor 1.0
+          E-default 20.0
+          angles-deg (range 0.0 181.0 10.0)]
+      (let [transfer-vec (vec (for [theta-deg angles-deg]
+                                (let [theta-rad (* theta-deg (/ Math/PI 180.0))
+                                      dsigma (t T-amplitudes S-factor k-i k-f theta-rad
+                                                mass-factor-i mass-factor-f 0.0 l-i l-f)]
+                                  {:energy E-default
+                                   :angle theta-deg
+                                   :differential_cross_section dsigma})))]
+        {:label label
+         :transfer transfer-vec}))))
+
+(defn- transfer-default-response
+  "Ring response for GET /api/transfer-default. target-key is e.g. \"16O\"."
+  [target-key]
+  (let [target (get transfer-targets target-key (get transfer-targets "16O"))
+        {:keys [label transfer]} (transfer-default-data target)]
+    (response {:success true
+               :target label
+               :data {:transfer transfer
+                      :parameters {:default (str label " at 20 MeV")
+                                   :target label}}})))
+
 (defn- serve-resource [resource-name]
   (if-let [resource (io/resource resource-name)]
     (-> resource
@@ -81,350 +161,197 @@
         (content-type (content-type-for resource-name)))
     {:status 404 :body "Not found" :headers {"Content-Type" "text/plain"}}))
 
-;; Web routes (API POST first so /api/calculate is never shadowed by file serving)
-(defroutes app-routes
-  (POST "/api/calculate" req
-    (try
-      (let [params (or (:body req) (:params req) {})
-            parse-doubles (fn [xs] (mapv #(Double/parseDouble (str %)) xs))
-            parse-ints    (fn [xs] (mapv #(Integer/parseInt (str %)) xs))
-            energies      (parse-doubles (or (:energies params) []))
-            L-values      (parse-ints (or (:L_values params) []))
-            ws-params     [(Double/parseDouble (str (:V0 params)))
-                           (Double/parseDouble (str (:R0 params)))
-                           (Double/parseDouble (str (:a0 params)))]
-            radius        (Double/parseDouble (str (:radius params)))]
-        (when (or (empty? energies) (empty? L-values))
-          (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
-        (let [compare-methods (boolean (:compare_methods params))
-              h-numerov 0.01
-              combinations (for [E energies L L-values] [E L])
-              numerov-cache (into {}
-                                 (pmap (fn [[E L]]
-                                         (let [[V0 R0 a0] ws-params
-                                               u (phys/solve-numerov E L V0 R0 a0 h-numerov radius)]
-                                           [[E L] u]))
-                                       combinations))
-              phase-shift-cache (into {}
-                                     (pmap (fn [[E L]]
-                                             [[E L] (phys/phase-shift E ws-params radius L)])
-                                           combinations))
-              r-matrix-a-cache (into {}
-                                    (pmap (fn [[E L]]
-                                            (let [u (get numerov-cache [E L])
-                                                  R (phys/r-matrix-from-numerov u h-numerov radius)
-                                                  Ra (* R radius)]
-                                              [[E L] Ra]))
-                                          combinations))
-              r-matrix-cache (into {}
-                                  (pmap (fn [[E L]]
-                                          [[E L] (phys/r-matrix E ws-params radius L)])
-                                        combinations))
-              comparison-data (when compare-methods
-                               (into {}
-                                    (pmap (fn [[E L]]
-                                            (let [Ra-orig (phys/r-matrix-a E ws-params radius L)
-                                                  Ra-num (get r-matrix-a-cache [E L])
-                                                  Ra-diff (Math/abs (- Ra-orig Ra-num))
-                                                  Ra-rel-error (if (zero? Ra-orig)
-                                                                (if (zero? Ra-diff) 0.0 100.0)
-                                                                (* 100.0 (/ Ra-diff (Math/abs Ra-orig))))]
-                                              [[E L] {:r_matrix_a {:original Ra-orig :numerov Ra-num
-                                                                   :difference Ra-diff :relative_error_percent Ra-rel-error}
-                                                      :note "Phase shifts use same method (4-arg phase-shift)"}]))
-                                          (take 5 combinations))))
-              phase-shift-data (for [E energies L L-values]
-                                {:energy E :L L :phase_shift (get phase-shift-cache [E L])})
-              r-matrix-data (for [E energies L L-values]
-                             {:energy E :L L
-                              :r_nuclear (get r-matrix-a-cache [E L])
-                              :r_coulomb_nuclear (get r-matrix-cache [E L])})
-              potential-data (let [radii (range 0.1 10.0 0.2)]
-                              (for [r radii]
-                                {:radius r
-                                 :woods_saxon (phys/WS r ws-params)
-                                 :coulomb (phys/Coulomb-pot r (second ws-params))
-                                 :combined (+ (phys/WS r ws-params) (phys/Coulomb-pot r (second ws-params)))}))
-              cross-section-data (for [E energies]
-                                  {:energy E
-                                   :total_cross_section (reduce + (map #(Math/pow (Math/sin (get phase-shift-cache [E %])) 2) L-values))})]
-          (response {:success true
-                     :data {:phase_shifts (vec phase-shift-data)
-                            :r_matrices (vec r-matrix-data)
-                            :potentials (vec potential-data)
-                            :cross_sections (vec cross-section-data)
-                            :parameters {:energies energies :L_values L-values :ws_params ws-params
-                                         :radius radius :h_numerov h-numerov :method "Numerov-based"}
-                            :comparison (when comparison-data
-                                         {:method_comparison comparison-data
-                                          :note "Comparison of Numerov-based vs original fine-step methods"})}})))
-      (catch Exception e
-        (response {:success false :error (.getMessage e)}))))
+;; ---------------------------
+;; Shared request parsing
+;; ---------------------------
+(defn- parse-doubles [xs] (mapv #(Double/parseDouble (str %)) (or xs [])))
+(defn- parse-ints [xs] (mapv #(Integer/parseInt (str %)) (or xs [])))
+(defn- params [req] (or (:body req) (:params req) {}))
 
-  ;; Serve static files
-  (GET "/" [] (serve-index))
-  (GET "/app.js" [] (serve-resource "app.js"))
-  (GET "/js/dashboard.js" [] (serve-resource "js/dashboard.js"))
-  (GET "/api/health" [] 
-    (response {:status "ok" :message "DWBA Web Dashboard API"}))
-  (GET "/api/parameters" []
-    (response {:default_parameters
-               {:energies (vec (map double (range 5 31)))
-                :L_values [0 1 2 3 4 5]
-                :V0 40.0 :R0 2.0 :a0 0.6 :radius 3.0
-                :E_ex 4.44 :lambda 2 :beta 0.25 :reaction_type "d-p"}
-               :parameter_ranges
-               {:V0 {:min -100.0 :max 100.0 :step 1.0}
-                :R0 {:min 0.5 :max 5.0 :step 0.1}
-                :a0 {:min 0.1 :max 2.0 :step 0.1}
-                :radius {:min 1.0 :max 10.0 :step 0.1}
-                :E_ex {:min 0.0 :max 20.0 :step 0.1}
-                :lambda {:min 1 :max 5 :step 1}
-                :beta {:min 0.0 :max 1.0 :step 0.01}}}))
-  (OPTIONS "/api/health" [] (response nil))
-  (OPTIONS "/api/calculate" [] (response nil))
-  (OPTIONS "/api/parameters" [] (response nil))
-  (OPTIONS "/api/elastic" [] (response nil))
-  (OPTIONS "/api/inelastic" [] (response nil))
-  (OPTIONS "/api/transfer" [] (response nil))
-  ;; GET /api/calculate would otherwise hit route/files and 404; return 405 so path is clearly ours
-  (GET "/api/calculate" [] (assoc (response "Use POST to submit calculation") :status 405))
+(defn- ws-params-from [params]
+  [(Double/parseDouble (str (:V0 params)))
+   (Double/parseDouble (str (:R0 params)))
+   (Double/parseDouble (str (:a0 params)))])
 
-  ;; Elastic scattering endpoint
-  (POST "/api/elastic" req
-    (try
-      (let [params (or (:body req) (:params req) {})
-            parse-doubles (fn [xs] (mapv #(Double/parseDouble (str %)) xs))
-            parse-ints    (fn [xs] (mapv #(Integer/parseInt (str %)) xs))
-            energies      (parse-doubles (or (:energies params) []))
-            L-values      (parse-ints (or (:L_values params) []))
-            ws-params     [(Double/parseDouble (str (:V0 params)))
-                           (Double/parseDouble (str (:R0 params)))
-                           (Double/parseDouble (str (:a0 params)))]
-            radius        (Double/parseDouble (str (:radius params)))
-            angles        (or (parse-doubles (or (:angles params) []))
-                             (range 0.0 181.0 10.0))]  ; Default: 0-180 deg in 10 deg steps
-        
-        (when (or (empty? energies) (empty? L-values))
-          (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
-        
-        (let [;; Cache resolved function to avoid repeated resolution
-              dsigma-fn (or (resolve 'functions/differential-cross-section)
-                            (do (require 'functions) (resolve 'functions/differential-cross-section)))
-              L-max (apply max L-values)
-              elastic-data
-              (for [E energies
-                    theta angles]
-                (let [theta-rad (* theta (/ Math/PI 180.0))
-                      dsigma-complex (if dsigma-fn
-                                       (dsigma-fn E ws-params theta-rad L-max)
-                                       0.0)
-                      dsigma (if (number? dsigma-complex) 
-                              dsigma-complex 
-                              (c/mag dsigma-complex))]
-                  {:energy E
-                   :angle theta
-                   :differential_cross_section dsigma}))]
-          
-          (response {:success true
-                     :data {:elastic elastic-data
-                            :parameters {:energies energies
-                                         :L_values L-values
-                                         :ws_params ws-params
-                                         :radius radius
-                                         :angles angles}}})))
-      (catch Exception e
-        (response {:success false
-                   :error (.getMessage e)}))))
-  
-  ;; Inelastic scattering endpoint
-  (POST "/api/inelastic" req
-    (try
-      ;; Lazy load inelastic namespace only when needed (cache after first load)
-      (when-not (find-ns 'dwba.inelastic)
-        (require 'dwba.inelastic))
-      ;; Cache resolved functions to avoid repeated resolution
-      (let [inel (or (resolve 'dwba.inelastic/distorted-wave-entrance)
-                     (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/distorted-wave-entrance)))
-            inel-exit (or (resolve 'dwba.inelastic/distorted-wave-exit)
-                          (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/distorted-wave-exit)))
-            inel-cross (or (resolve 'dwba.inelastic/inelastic-cross-section)
-                           (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/inelastic-cross-section)))
-            params (or (:body req) (:params req) {})
-            parse-doubles (fn [xs] (mapv #(Double/parseDouble (str %)) xs))
-            parse-ints    (fn [xs] (mapv #(Integer/parseInt (str %)) xs))
-            energies      (parse-doubles (or (:energies params) []))
-            L-values      (parse-ints (or (:L_values params) []))
-            ws-params     [(parse-double* "V0" (:V0 params))
-                           (parse-double* "R0" (:R0 params))
-                           (parse-double* "a0" (:a0 params))]
-            E-ex          (parse-double* "excitation energy E_ex" (:E_ex params))
-            lambda        (parse-int* "multipole order lambda" (:lambda params))
-            beta          (parse-double* "deformation parameter beta" (:beta params))
-            ;; Optimize: Use coarser step size and smaller radius for faster calculations
-            ;; h=0.02 reduces points from ~2000 to ~1000, r-max=15 reduces from 1000 to 750 points
-            ;; Total: ~2.7x fewer points = ~2.7x faster Numerov integration
-            h             0.02  ; Optimized step size (was 0.01)
-            r-max         15.0  ; Reduced max radius (was 20.0) - sufficient for most calculations
-            mu            0     ; Magnetic quantum number (default 0)
-            mass-factor   phys/mass-factor]
-        
-        (when (or (empty? energies) (empty? L-values))
-          (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
-        
-        ;; Optimized: Pre-compute transition potential vector once (same for all E, L combinations)
-        ;; This avoids recreating it 156 times (26 energies × 6 L-values)
-        ;; The transition potential only depends on lambda, beta, V-params, r-max, h (all constant)
-        (let [n-points (int (/ r-max h))
-              transition-form-factor-fn (or (resolve 'dwba.inelastic/transition-form-factor)
-                                            (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/transition-form-factor)))
-              V-transition-vec (when transition-form-factor-fn
-                                (mapv (fn [i]
-                                       (let [r (* i h)]
-                                         (transition-form-factor-fn r lambda beta ws-params)))
-                                     (range n-points)))
-              inelastic-amplitude-radial-fn (or (resolve 'dwba.inelastic/inelastic-amplitude-radial)
-                                                (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/inelastic-amplitude-radial)))
-              inelastic-dsigma-fn (or (resolve 'dwba.inelastic/inelastic-differential-cross-section)
-                                     (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/inelastic-differential-cross-section)))
-              angular-factor (* 4.0 Math/PI)  ; For mu=0 (axially symmetric)
-              ;; Optimized: Use coarser step size (h=0.02) and smaller radius (r-max=15.0)
-              ;; This reduces Numerov integration points from ~2000 to ~750 (2.7x fewer points)
-              inelastic-data
-              (for [E-i energies
-                    L-i L-values]
-                (try
-                  (let [chi-i (inel E-i L-i ws-params h r-max)
-                        chi-f (inel-exit E-i E-ex L-i ws-params h r-max)
-                        ;; Use pre-computed transition potential to avoid recreating it 156 times
-                        dsigma (if (and V-transition-vec inelastic-amplitude-radial-fn inelastic-dsigma-fn)
-                                (let [T-radial (inelastic-amplitude-radial-fn chi-i chi-f V-transition-vec r-max h)
-                                      T-inel (if (number? T-radial)
-                                              (* angular-factor T-radial)
-                                              (c/mul angular-factor T-radial))
-                                      k-i (Math/sqrt (* mass-factor E-i))
-                                      E-f (- E-i E-ex)
-                                      k-f (Math/sqrt (* mass-factor E-f))]
-                                  (inelastic-dsigma-fn T-inel k-i k-f E-i E-ex mass-factor))
-                                ;; Fallback to original method if functions not available
-                                (inel-cross chi-i chi-f lambda mu beta ws-params E-i E-ex r-max h mass-factor))]
-                    {:energy E-i
-                     :L L-i
-                     :excitation_energy E-ex
-                     :differential_cross_section dsigma})
-                  (catch Exception e
-                    {:energy E-i
-                     :L L-i
-                     :excitation_energy E-ex
-                     :differential_cross_section 0.0
-                     :error (.getMessage e)})))]
-          
-          (response {:success true
-                     :data {:inelastic inelastic-data
-                            :parameters {:energies energies
-                                         :L_values L-values
-                                         :ws_params ws-params
-                                         :E_ex E-ex
-                                         :lambda lambda
-                                         :beta beta
-                                         :h h
-                                         :r_max r-max}}})))
-      (catch Exception e
-        (response {:success false
-                   :error (.getMessage e)}))))
-  
-  ;; Transfer reaction endpoint
-  (POST "/api/transfer" req
+;; ---------------------------
+;; API handlers (req -> response)
+;; ---------------------------
+(defn- handle-api-calculate [req]
   (try
-    ;; Lazy load transfer namespace only when needed (cache after first load)
-    (when-not (find-ns 'dwba.transfer)
-      (require 'dwba.transfer))
-    ;; Also lazy-load form-factors for proper bound-state overlaps
-    (when-not (find-ns 'dwba.form-factors)
-      (require 'dwba.form-factors))
-    ;; Cache resolved functions to avoid repeated resolution
-    (let [zero-range-const (or (resolve 'dwba.transfer/zero-range-constant)
-                               (do (require 'dwba.transfer) (resolve 'dwba.transfer/zero-range-constant)))
-          transfer-amp (or (resolve 'dwba.transfer/transfer-amplitude-zero-range)
-                           (do (require 'dwba.transfer) (resolve 'dwba.transfer/transfer-amplitude-zero-range)))
-          transfer-dsigma (or (resolve 'dwba.transfer/transfer-differential-cross-section)
-                              (do (require 'dwba.transfer) (resolve 'dwba.transfer/transfer-differential-cross-section)))
-          ;; Use the higher-level bound-state solver and normalized overlap,
-          ;; so the endpoint is consistent with the physics examples.
-          solve-bound-state (or (resolve 'dwba.transfer/solve-bound-state)
-                                (do (require 'dwba.transfer) (resolve 'dwba.transfer/solve-bound-state)))
-          normalized-overlap (or (resolve 'dwba.form-factors/normalized-overlap)
-                                 (do (require 'dwba.form-factors) (resolve 'dwba.form-factors/normalized-overlap)))
-          params (or (:body req) (:params req) {})
-          parse-doubles (fn [xs] (mapv #(Double/parseDouble (str %)) xs))
-          parse-ints    (fn [xs] (mapv #(Integer/parseInt (str %)) xs))
-          energies      (parse-doubles (or (:energies params) []))
-          L-values      (parse-ints (or (:L_values params) []))
-          ws-params     [(Double/parseDouble (str (:V0 params)))
-                         (Double/parseDouble (str (:R0 params)))
-                         (Double/parseDouble (str (:a0 params)))]
-          reaction-type (keyword (str (:reaction_type params)))
-          S-factor      1.0  ; Fixed to 1.0 as requested
-          mass-factor   phys/mass-factor
-          ;; Numerical parameters for bound-state and overlap calculation
-          h             0.01
-          r-max         20.0
-          ;; For now, mirror the 16O(p,d) example:
-          ;; - Initial bound state: l=1 neutron in WS potential
-          ;; - Final bound state:   l=0 neutron in WS potential
-          ;; This gives a more realistic overlap than the old placeholder = 1.0.
-          bound-i       (solve-bound-state ws-params 1 1 nil r-max h)
-          bound-f       (solve-bound-state ws-params 1 0 nil r-max h)
-          phi-i         (:normalized-wavefunction bound-i)
-          phi-f         (:normalized-wavefunction bound-f)
-          overlap-approx (normalized-overlap phi-i phi-f r-max h)]
-      
+    (let [p (params req)
+          energies (parse-doubles (:energies p))
+          L-values (parse-ints (:L_values p))
+          ws (ws-params-from p)
+          radius (Double/parseDouble (str (:radius p)))]
       (when (or (empty? energies) (empty? L-values))
         (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
-      
-      (let [D0 (zero-range-const reaction-type)
-            transfer-data
-            (for [E-i energies
-                  L L-values]
-              (try
-                (let [E-f-approx (* 0.8 E-i)  ; Approximate exit energy (kept schematic for now)
-                      k-i (Math/sqrt (* mass-factor E-i))
-                      k-f (Math/sqrt (* mass-factor E-f-approx))
-                      T-amplitude (transfer-amp overlap-approx D0)
-                      dsigma (transfer-dsigma T-amplitude S-factor k-i k-f mass-factor mass-factor)]
-                  {:energy E-i
-                   :L L
-                   :differential_cross_section dsigma
-                   :transfer_amplitude (if (number? T-amplitude) T-amplitude (c/mag T-amplitude))})
-                (catch Exception e
-                  {:energy E-i
-                   :L L
-                   :differential_cross_section 0.0
-                   :error (.getMessage e)})))]
-        
+      (let [compare-methods (boolean (:compare_methods p))
+            h-numerov 0.01
+            combinations (for [E energies L L-values] [E L])
+            numerov-cache (into {} (pmap (fn [[E L]] (let [[V0 R0 a0] ws, u (phys/solve-numerov E L V0 R0 a0 h-numerov radius)] [[E L] u])) combinations))
+            phase-shift-cache (into {} (pmap (fn [[E L]] [[E L] (phys/phase-shift E ws radius L)]) combinations))
+            r-matrix-a-cache (into {} (pmap (fn [[E L]] (let [u (get numerov-cache [E L]), R (phys/r-matrix-from-numerov u h-numerov radius)] [[E L] (* R radius)])) combinations))
+            r-matrix-cache (into {} (pmap (fn [[E L]] [[E L] (phys/r-matrix E ws radius L)]) combinations))
+            comparison-data (when compare-methods
+                              (into {} (pmap (fn [[E L]]
+                                               (let [Ra-orig (phys/r-matrix-a E ws radius L), Ra-num (get r-matrix-a-cache [E L])
+                                                     Ra-diff (Math/abs (- Ra-orig Ra-num))
+                                                     Ra-rel (if (zero? Ra-orig) (if (zero? Ra-diff) 0.0 100.0) (* 100.0 (/ Ra-diff (Math/abs Ra-orig))))]
+                                                 [[E L] {:r_matrix_a {:original Ra-orig :numerov Ra-num :difference Ra-diff :relative_error_percent Ra-rel}
+                                                         :note "Phase shifts use same method (4-arg phase-shift)"}]))
+                                             (take 5 combinations))))
+            phase-shift-data (for [E energies L L-values] {:energy E :L L :phase_shift (get phase-shift-cache [E L])})
+            r-matrix-data (for [E energies L L-values] {:energy E :L L :r_nuclear (get r-matrix-a-cache [E L]) :r_coulomb_nuclear (get r-matrix-cache [E L])})
+            radii (range 0.1 10.0 0.2)
+            potential-data (for [r radii] {:radius r :woods_saxon (phys/WS r ws) :coulomb (phys/Coulomb-pot r (second ws))
+                                          :combined (+ (phys/WS r ws) (phys/Coulomb-pot r (second ws)))})
+            cross-section-data (for [E energies]
+                                {:energy E :total_cross_section (reduce + (map #(Math/pow (Math/sin (get phase-shift-cache [E %])) 2) L-values))})]
         (response {:success true
-                   :data {:transfer transfer-data
-                          :parameters {:energies energies
-                                       :L_values L-values
-                                       :ws_params ws-params
-                                       :reaction_type (str reaction-type)
-                                       :S_factor S-factor}}})))
-    (catch Exception e
-      (response {:success false
-                 :error (.getMessage e)})))
-  
-  ;; Fallback for static files
-  (route/files "/" {:root "public"})
-  (route/not-found "Not Found")))
-;; Middleware
+                   :data {:phase_shifts (vec phase-shift-data) :r_matrices (vec r-matrix-data) :potentials (vec potential-data)
+                          :cross_sections (vec cross-section-data)
+                          :parameters {:energies energies :L_values L-values :ws_params ws :radius radius :h_numerov h-numerov :method "Numerov-based"}
+                          :comparison (when comparison-data {:method_comparison comparison-data :note "Comparison of Numerov-based vs original fine-step methods"})}})))
+    (catch Exception e (response {:success false :error (.getMessage e)}))))
+
+(defn- handle-api-elastic [req]
+  (try
+    (let [p (params req)
+          energies (parse-doubles (:energies p))
+          L-values (parse-ints (:L_values p))
+          ws (ws-params-from p)
+          radius (Double/parseDouble (str (:radius p)))
+          angles (or (parse-doubles (:angles p)) (range 0.0 181.0 10.0))]
+      (when (or (empty? energies) (empty? L-values))
+        (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
+      (let [dsigma-fn (or (resolve 'functions/differential-cross-section) (do (require 'functions) (resolve 'functions/differential-cross-section)))
+            L-max (apply max L-values)
+            elastic-data (for [E energies theta angles]
+                           (let [theta-rad (* theta (/ Math/PI 180.0))
+                                 dsigma-complex (if dsigma-fn (dsigma-fn E ws theta-rad L-max) 0.0)
+                                 dsigma (if (number? dsigma-complex) dsigma-complex (c/mag dsigma-complex))]
+                             {:energy E :angle theta :differential_cross_section dsigma}))]
+        (response {:success true :data {:elastic elastic-data :parameters {:energies energies :L_values L-values :ws_params ws :radius radius :angles angles}}})))
+    (catch Exception e (response {:success false :error (.getMessage e)}))))
+
+(defn- handle-api-inelastic [req]
+  (try
+    (when-not (find-ns 'dwba.inelastic) (require 'dwba.inelastic))
+    (let [inel (or (resolve 'dwba.inelastic/distorted-wave-entrance) (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/distorted-wave-entrance)))
+          inel-exit (or (resolve 'dwba.inelastic/distorted-wave-exit) (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/distorted-wave-exit)))
+          inel-cross (or (resolve 'dwba.inelastic/inelastic-cross-section) (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/inelastic-cross-section)))
+          p (params req)
+          energies (parse-doubles (:energies p))
+          L-values (parse-ints (:L_values p))
+          ws [(parse-double* "V0" (:V0 p)) (parse-double* "R0" (:R0 p)) (parse-double* "a0" (:a0 p))]
+          E-ex (parse-double* "excitation energy E_ex" (:E_ex p))
+          lambda (parse-int* "multipole order lambda" (:lambda p))
+          beta (parse-double* "deformation parameter beta" (:beta p))
+          h 0.02, r-max 15.0, mu 0, mass-factor phys/mass-factor]
+      (when (or (empty? energies) (empty? L-values))
+        (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
+      (let [n-points (int (/ r-max h))
+            transition-form-factor-fn (or (resolve 'dwba.inelastic/transition-form-factor) (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/transition-form-factor)))
+            V-transition-vec (when transition-form-factor-fn (mapv (fn [i] (transition-form-factor-fn (* i h) lambda beta ws)) (range n-points)))
+            inelastic-amplitude-radial-fn (or (resolve 'dwba.inelastic/inelastic-amplitude-radial) (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/inelastic-amplitude-radial)))
+            inelastic-dsigma-fn (or (resolve 'dwba.inelastic/inelastic-differential-cross-section) (do (require 'dwba.inelastic) (resolve 'dwba.inelastic/inelastic-differential-cross-section)))
+            angular-factor (* 4.0 Math/PI)
+            inelastic-data (for [E-i energies L-i L-values]
+                             (try
+                               (let [chi-i (inel E-i L-i ws h r-max)
+                                     chi-f (inel-exit E-i E-ex L-i ws h r-max)
+                                     dsigma (if (and V-transition-vec inelastic-amplitude-radial-fn inelastic-dsigma-fn)
+                                              (let [T-radial (inelastic-amplitude-radial-fn chi-i chi-f V-transition-vec r-max h)
+                                                    T-inel (if (number? T-radial) (* angular-factor T-radial) (c/mul angular-factor T-radial))
+                                                    k-i (Math/sqrt (* mass-factor E-i)), E-f (- E-i E-ex), k-f (Math/sqrt (* mass-factor E-f))]
+                                                (inelastic-dsigma-fn T-inel k-i k-f E-i E-ex mass-factor))
+                                              (inel-cross chi-i chi-f lambda mu beta ws E-i E-ex r-max h mass-factor))]
+                                 {:energy E-i :L L-i :excitation_energy E-ex :differential_cross_section dsigma})
+                               (catch Exception e {:energy E-i :L L-i :excitation_energy E-ex :differential_cross_section 0.0 :error (.getMessage e)})))]
+        (response {:success true :data {:inelastic inelastic-data :parameters {:energies energies :L_values L-values :ws_params ws :E_ex E-ex :lambda lambda :beta beta :h h :r_max r-max}}})))
+    (catch Exception e (response {:success false :error (.getMessage e)}))))
+
+(defn- handle-api-transfer [req]
+  (try
+    (when-not (find-ns 'dwba.transfer) (require 'dwba.transfer))
+    (when-not (find-ns 'dwba.form-factors) (require 'dwba.form-factors))
+    (let [zero-range-const (or (resolve 'dwba.transfer/zero-range-constant) (do (require 'dwba.transfer) (resolve 'dwba.transfer/zero-range-constant)))
+          transfer-amp (or (resolve 'dwba.transfer/transfer-amplitude-zero-range) (do (require 'dwba.transfer) (resolve 'dwba.transfer/transfer-amplitude-zero-range)))
+          transfer-dsigma (or (resolve 'dwba.transfer/transfer-differential-cross-section) (do (require 'dwba.transfer) (resolve 'dwba.transfer/transfer-differential-cross-section)))
+          solve-bound-state (or (resolve 'dwba.transfer/solve-bound-state) (do (require 'dwba.transfer) (resolve 'dwba.transfer/solve-bound-state)))
+          normalized-overlap (or (resolve 'dwba.form-factors/normalized-overlap) (do (require 'dwba.form-factors) (resolve 'dwba.form-factors/normalized-overlap)))
+          p (params req)
+          energies (parse-doubles (:energies p))
+          L-values (parse-ints (:L_values p))
+          ws (ws-params-from p)
+          reaction-type (keyword (str (:reaction_type p)))
+          S-factor 1.0, mass-factor phys/mass-factor, h 0.01, r-max 20.0
+          bound-i (solve-bound-state ws 1 1 nil r-max h)
+          bound-f (solve-bound-state ws 1 0 nil r-max h)
+          phi-i (:normalized-wavefunction bound-i)
+          phi-f (:normalized-wavefunction bound-f)
+          overlap-approx (normalized-overlap phi-i phi-f r-max h)]
+      (when (or (empty? energies) (empty? L-values))
+        (throw (ex-info "Missing energies or L_values" {:energies energies :L_values L-values})))
+      (let [D0 (zero-range-const reaction-type)
+            transfer-data (for [E-i energies L L-values]
+                           (try
+                             (let [E-f-approx (* 0.8 E-i)
+                                   k-i (Math/sqrt (* mass-factor E-i))
+                                   k-f (Math/sqrt (* mass-factor E-f-approx))
+                                   T-amplitude (transfer-amp overlap-approx D0)
+                                   dsigma (transfer-dsigma T-amplitude S-factor k-i k-f mass-factor mass-factor)]
+                               {:energy E-i :L L :differential_cross_section dsigma
+                                :transfer_amplitude (if (number? T-amplitude) T-amplitude (c/mag T-amplitude))})
+                             (catch Exception e {:energy E-i :L L :differential_cross_section 0.0 :error (.getMessage e)})))]
+        (response {:success true :data {:transfer transfer-data :parameters {:energies energies :L_values L-values :ws_params ws :reaction_type (str reaction-type) :S_factor S-factor}}})))
+    (catch Exception e (response {:success false :error (.getMessage e)}))))
+
+(defn- handle-transfer-default [req]
+  (try (transfer-default-response (str (or (query-param req "target") "16O")))
+       (catch Exception e (response {:success false :error (.getMessage e)}))))
+
+;; ---------------------------
+;; Routes: build flat list and apply (avoids deep nesting / delimiter errors)
+;; ---------------------------
+(defn- route-list []
+  (list
+    (POST "/api/calculate" [req] (handle-api-calculate req))
+    (POST "/api/elastic" [req] (handle-api-elastic req))
+    (POST "/api/inelastic" [req] (handle-api-inelastic req))
+    (POST "/api/transfer" [req] (handle-api-transfer req))
+    (GET "/" [] (serve-index))
+    (GET "/app.js" [] (serve-resource "app.js"))
+    (GET "/js/dashboard.js" [] (serve-resource "js/dashboard.js"))
+    (GET "/api/health" [] (response {:status "ok" :message "DWBA Web Dashboard API"}))
+    (GET "/api/parameters" [] (response {:default_parameters {:energies (vec (map double (range 5 31))) :L_values [0 1 2 3 4 5]
+                                                               :V0 40.0 :R0 2.0 :a0 0.6 :radius 3.0 :E_ex 4.44 :lambda 2 :beta 0.25 :reaction_type "p-d"}
+                                         :parameter_ranges {:V0 {:min -100.0 :max 100.0 :step 1.0} :R0 {:min 0.5 :max 5.0 :step 0.1}
+                                                            :a0 {:min 0.1 :max 2.0 :step 0.1} :radius {:min 1.0 :max 10.0 :step 0.1}
+                                                            :E_ex {:min 0.0 :max 20.0 :step 0.1} :lambda {:min 1 :max 5 :step 1} :beta {:min 0.0 :max 1.0 :step 0.01}}}))
+    (GET "/api/transfer-default" [req] (handle-transfer-default req))
+    (OPTIONS "/api/health" [] (response nil))
+    (OPTIONS "/api/calculate" [] (response nil))
+    (OPTIONS "/api/parameters" [] (response nil))
+    (OPTIONS "/api/elastic" [] (response nil))
+    (OPTIONS "/api/inelastic" [] (response nil))
+    (OPTIONS "/api/transfer" [] (response nil))
+    (OPTIONS "/api/transfer-default" [] (response nil))
+    (GET "/api/calculate" [] (assoc (response "Use POST to submit calculation") :status 405))
+    (GET "/api/transfer" [] (assoc (response "Use POST for transfer calculation, GET /api/transfer-default for default (p,d) plot") :status 405))
+    (route/files "/" {:root "public"})
+    (route/not-found "Not Found")))
+
 (def app
-  (-> app-routes
+  (let [routes-handler (try (apply routes (route-list))
+                           (catch Throwable t (fn [req] {:status 500 :body (str "Routes failed to load: " (.getMessage t)) :headers {"Content-Type" "text/plain"}})))]
+    (-> routes-handler
       wrap-nil-response
       (wrap-json-body {:keywords? true})
       (wrap-json-response)
       (wrap-cors :access-control-allow-origin [#".*"]
                  :access-control-allow-methods [:get :post :options]
-                 :access-control-allow-headers ["Content-Type"])))
+                 :access-control-allow-headers ["Content-Type"]))))
 
 ;; Server
 (defn start-server [port]

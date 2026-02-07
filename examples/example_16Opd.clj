@@ -18,6 +18,9 @@
 (require '[functions :refer [solve-numerov mass-factor]])
 (require '[fastmath.core :as m])
 (require '[complex :as c :refer [mag re im complex-cartesian add mul]])
+(require '[incanter.core :as i])
+(require '[incanter.charts :as c])
+(require '[clojure.java.io :as io])
 
 (println "=== 16O(p,d) Transfer Reaction Calculation ===")
 (println "")
@@ -150,13 +153,21 @@
       S-factor 1.0
       theta-deg 0.0  ; Forward angle (degrees)
       theta-rad (* theta-deg (/ Math/PI 180.0))
+      ;; Pass l-i, l-f so only allowed L contribute (L selection: triangle + parity)
       dsigma (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f 
-                                                           theta-rad mass-factor-i mass-factor-f)
+                                                           theta-rad mass-factor-i mass-factor-f 0.0 l-i l-f)
       ;; At 70° (compare to experiment: ~0.5 mb/sr at 20 MeV)
       theta-70-deg 70.0
       theta-70-rad (* theta-70-deg (/ Math/PI 180.0))
       dsigma-70 (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f 
-                                                               theta-70-rad mass-factor-i mass-factor-f)]
+                                                               theta-70-rad mass-factor-i mass-factor-f 0.0 l-i l-f)
+      ;; Angles and DCS for plotting (0° to 180°, step 5°), dσ/dΩ in mb/sr
+      angles-deg (range 0.0 181.0 5.0)
+      angles-rad (mapv #(* % (/ Math/PI 180.0)) angles-deg)
+      dsigma-mb-sr (mapv (fn [theta-rad]
+                           (* 10.0 (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f
+                                                                                  theta-rad mass-factor-i mass-factor-f 0.0 l-i l-f)))
+                         angles-rad)]
   
   ;; ============================================================================
   ;; Output
@@ -280,7 +291,21 @@
   (println (format "Differential cross section: dσ/dΩ(70°) = %.6e mb/sr" (* dsigma-70 10.0)))
   (println "")
   (println "=== Calculation Complete ===")
-  
+
+  ;; Plot DCS vs angle and save to file
+  (try
+    (let [_ (io/make-parents (io/file "output/16Opd_dcs.png"))
+          chart (c/xy-plot (vec angles-deg) (vec dsigma-mb-sr)
+                           :title "16O(p,d)15O — Differential cross section"
+                           :x-label "θ (deg)"
+                           :y-label "dσ/dΩ (mb/sr)"
+                           :series-label (format "E_lab = %.1f MeV" E-lab)
+                           :legend true)]
+      (i/save chart "output/16Opd_dcs.png" :width 800 :height 500)
+      (println "Plot saved: output/16Opd_dcs.png"))
+    (catch Exception e
+      (println (format "Note: Could not save plot (%s). Create output/ directory or check Incanter." (.getMessage e)))))))
+
   ;; Return the differential cross section
   dsigma
   )

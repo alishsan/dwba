@@ -171,7 +171,7 @@
                     <div class="col-md-3">
                         <div class="parameter-group">
                             <label for="V0">Woods-Saxon V₀ (MeV)</label>
-                            <input type="range" class="form-range" id="V0" min="-100" max="100" value="40" step="1">
+                            <input type="range" class="form-range" id="V0" min="0" max="100" value="40" step="1">
                             <div class="slider-value" id="V0-value">40 MeV</div>
                         </div>
                     </div>
@@ -375,16 +375,25 @@
                     <div class="control-panel mb-3">
                         <h4><i class="fas fa-arrows-alt"></i> Transfer Reaction Parameters</h4>
                         <div class="row">
-                            <div class="col-md-12">
+                            <div class="col-md-6">
                                 <div class="parameter-group">
-                                    <label for="reaction_type">Reaction Type</label>
+                                    <label for="transfer_target">Target nucleus</label>
+                                    <select class="form-select" id="transfer_target">
+                                        <option value="16O" selected>¹⁶O</option>
+                                        <option value="12C">¹²C</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="parameter-group">
+                                    <label for="reaction_type">Reaction type</label>
                                     <select class="form-select" id="reaction_type">
-                                        <option value="d-p">(d,p) - Neutron Transfer</option>
-                                        <option value="d-n">(d,n) - Proton Transfer</option>
-                                        <option value="p-d">(p,d) - Neutron Pickup</option>
-                                        <option value="n-d">(n,d) - Proton Pickup</option>
-                                        <option value="alpha-t">(α,t) - Proton Transfer</option>
-                                        <option value="alpha-he3">(α,³He) - Neutron Transfer</option>
+                                        <option value="p-d" selected>(p,d) – stripping (default)</option>
+                                        <option value="d-p">(d,p) – neutron transfer</option>
+                                        <option value="d-n">(d,n) – proton transfer</option>
+                                        <option value="n-d">(n,d) – proton pickup</option>
+                                        <option value="alpha-t">(α,t) – proton transfer</option>
+                                        <option value="alpha-he3">(α,³He) – neutron transfer</option>
                                     </select>
                                 </div>
                             </div>
@@ -397,6 +406,7 @@
                     </div>
                     <div class="plot-container">
                         <div class="plot-title">Transfer Reaction Differential Cross-Section</div>
+                        <p class="text-muted small mb-2">Default: <span id="transfer-default-label">16O(p,d)15O</span> at 20 MeV. Change target or use Calculate to run with current parameters.</p>
                         <div id="transfer-plot" style="height: 500px;"></div>
                     </div>
                 </div>

@@ -10,8 +10,36 @@ class DWBADashboard {
         this.initializeEventListeners();
         this.loadDefaultParameters();
         this.checkApiHealth();
+        this.loadTransferDefault();  // (p,d) default DCS on Transfer tab
         if (!onDashboard && !apiFromQuery) {
             this.showApiNotice(dashboardUrl);
+        }
+    }
+
+    /** Load default (p,d) DCS for the Transfer tab; uses selected target nucleus. */
+    async loadTransferDefault() {
+        const targetEl = document.getElementById('transfer_target');
+        const target = targetEl ? targetEl.value : '16O';
+        const labelEl = document.getElementById('transfer-default-label');
+        try {
+            const r = await fetch(`${this.apiBase}/api/transfer-default?target=${encodeURIComponent(target)}`);
+            if (!r.ok) {
+                if (labelEl) labelEl.textContent = target + '(p,d) (load failed)';
+                return;
+            }
+            const json = await r.json();
+            if (json.success && json.data && json.data.transfer && json.data.transfer.length) {
+                this.currentData = this.currentData || {};
+                this.currentData.transfer = json.data.transfer;
+                this.currentData.transferTargetLabel = json.target || json.data?.parameters?.target || (target + '(p,d)');
+                if (labelEl) labelEl.textContent = this.currentData.transferTargetLabel;
+                this.plotTransfer();
+            } else if (json.error && labelEl) {
+                labelEl.textContent = target + '(p,d) (error)';
+            }
+        } catch (e) {
+            console.warn('Transfer default not loaded:', e.message);
+            if (labelEl) labelEl.textContent = target + '(p,d) (offline)';
         }
     }
 
@@ -65,6 +93,11 @@ class DWBADashboard {
         calcButtons.forEach(([id, method]) => {
             const btn = document.getElementById(id);
             if (btn) btn.addEventListener('click', () => this[method]());
+        });
+
+        // Target nucleus change: reload default (p,d) plot
+        document.getElementById('transfer_target')?.addEventListener('change', () => {
+            this.loadTransferDefault();
         });
     }
 
@@ -160,7 +193,8 @@ class DWBADashboard {
             E_ex: parseFloat(document.getElementById('E_ex').value),
             lambda: parseInt(document.getElementById('lambda').value),
             beta: parseFloat(document.getElementById('beta').value),
-            reaction_type: document.getElementById('reaction_type').value
+            reaction_type: document.getElementById('reaction_type').value,
+            target: (document.getElementById('transfer_target') || {}).value || '16O'
         };
     }
 
@@ -612,30 +646,48 @@ class DWBADashboard {
         const data = this.currentData.transfer;
         if (!data || data.length === 0) return;
 
-        const traces = {};
-        
-        // Group by L
-        data.forEach(point => {
-            const L = point.L;
-            if (!traces[L]) {
-                traces[L] = {
-                    x: [],
-                    y: [],
-                    name: `L = ${L}`,
-                    type: 'scatter',
-                    mode: 'lines+markers',
-                    line: { width: 3 },
-                    marker: { size: 6 }
-                };
-            }
-            traces[L].x.push(point.energy);
-            traces[L].y.push(point.differential_cross_section);
-        });
+        // Default 16O(p,d) data has angle; Calculate returns energy + L
+        const hasAngle = data[0] && data[0].angle !== undefined;
 
-        const plotData = Object.values(traces);
+        let plotData, xTitle;
+        if (hasAngle) {
+            const E = data[0].energy;
+            const label = this.currentData.transferTargetLabel || '16O(p,d)15O';
+            plotData = [{
+                x: data.map(p => p.angle),
+                y: data.map(p => p.differential_cross_section),
+                name: `${label}, E = ${E} MeV`,
+                type: 'scatter',
+                mode: 'lines+markers',
+                line: { width: 3 },
+                marker: { size: 6 }
+            }];
+            xTitle = 'Scattering angle (degrees)';
+        } else {
+            const traces = {};
+            data.forEach(point => {
+                const L = point.L;
+                if (!traces[L]) {
+                    traces[L] = {
+                        x: [],
+                        y: [],
+                        name: `L = ${L}`,
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        line: { width: 3 },
+                        marker: { size: 6 }
+                    };
+                }
+                traces[L].x.push(point.energy);
+                traces[L].y.push(point.differential_cross_section);
+            });
+            plotData = Object.values(traces);
+            xTitle = 'Energy (MeV)';
+        }
+
         const layout = {
             title: 'Transfer Reaction Differential Cross-Section',
-            xaxis: { title: 'Energy (MeV)', gridcolor: '#e0e0e0' },
+            xaxis: { title: xTitle, gridcolor: '#e0e0e0' },
             yaxis: { title: 'dσ/dΩ (fm²/sr)', type: 'log', gridcolor: '#e0e0e0' },
             plot_bgcolor: 'rgba(0,0,0,0)',
             paper_bgcolor: 'rgba(0,0,0,0)',

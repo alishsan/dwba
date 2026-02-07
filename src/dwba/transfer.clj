@@ -1434,6 +1434,28 @@
 ;; PHASE 5: ANGULAR MOMENTUM COUPLING
 ;; ============================================================================
 
+(defn transfer-L-selection-weight
+  "Selection weight for angular momentum transfer L in single-nucleon transfer.
+   
+   For transfer from initial orbital l_i to final orbital l_f:
+   - Triangle rule: |l_i - l_f| ≤ L ≤ l_i + l_f
+   - Parity: (-1)^L = (-1)^(l_i + l_f)
+   
+   Returns 1.0 if L is allowed, 0.0 if forbidden. Use when building dσ/dΩ
+   so that only allowed L contribute (some L dominate, others suppressed).
+   
+   Example: l_i=1, l_f=0 → only L=1 allowed (L=0 parity-forbidden, L>1 triangle-forbidden)."
+  [L l-i l-f]
+  (let [l-i (long l-i)
+        l-f (long l-f)
+        L (long L)
+        triangle-ok (and (>= L (Math/abs (- l-i l-f)))
+                        (<= L (+ l-i l-f)))
+        parity-l (+ l-i l-f)  ; (-1)^(l_i + l_f)
+        parity-L L            ; (-1)^L
+        parity-ok (= (mod parity-l 2) (mod parity-L 2))]
+    (if (and triangle-ok parity-ok) 1.0 0.0)))
+
 (defn clebsch-gordan
   "Calculate Clebsch-Gordan coefficient <j1 m1 j2 m2 | J M>.
    
@@ -1611,31 +1633,41 @@
    momentum coupling between the initial and final states.
    
    For a transfer reaction with angular momentum transfer L:
-   dσ/dΩ(θ) = Σ_L |T_L|² · |Y_L0(θ, 0)|²
+   dσ/dΩ(θ) ∝ Σ_L |w_L·T_L|² · |Y_L0(θ, 0)|². When l-i and l-f are given, w_L is the
+   selection weight (1 if L allowed, 0 if forbidden by triangle/parity), so some L dominate, others suppressed.
    
    Parameters:
    - T-amplitudes: Map of {L → T_L} transfer amplitudes for each angular momentum
    - theta: Scattering angle (radians)
    - phi: Azimuthal angle (radians, default 0 for coplanar scattering)
+   - l-i: Optional. Initial bound-state orbital (e.g. 1 for p-wave). Enables L selection.
+   - l-f: Optional. Final bound-state orbital (e.g. 0 for s-wave). Enables L selection.
    
    Returns: Angular distribution value
    
    Example:
    (let [T-map {0 1.0, 1 0.5, 2 0.2}]
-     (transfer-angular-distribution T-map (/ Math/PI 2) 0))"
+     (transfer-angular-distribution T-map (/ Math/PI 2) 0))
+   ;; With L selection (l_i=1, l_f=0 → only L=1 allowed):
+   (transfer-angular-distribution T-map (/ Math/PI 2) 0.0 1 0)"
   ([T-amplitudes theta]
-   (transfer-angular-distribution T-amplitudes theta 0.0))
+   (transfer-angular-distribution T-amplitudes theta 0.0 nil nil))
   ([T-amplitudes theta phi]
-   (let [;; Sum over all angular momentum transfers
+   (transfer-angular-distribution T-amplitudes theta phi nil nil))
+  ([T-amplitudes theta phi l-i l-f]
+   (let [weight-fn (if (and (number? l-i) (number? l-f))
+                     (fn [L] (transfer-L-selection-weight L l-i l-f))
+                     (fn [_L] 1.0))
          sum-over-L (reduce + (map (fn [[L T-L]]
-                                   (let [Y-L0 (spherical-harmonic L 0 theta phi)
+                                   (let [w (weight-fn L)
+                                         Y-L0 (spherical-harmonic L 0 theta phi)
                                          Y-L0-mag-squared (+ (* (re Y-L0) (re Y-L0))
                                                             (* (im Y-L0) (im Y-L0)))
                                          T-L-mag-squared (if (number? T-L)
                                                           (* T-L T-L)
                                                           (+ (* (re T-L) (re T-L))
                                                             (* (im T-L) (im T-L))))]
-                                     (* T-L-mag-squared Y-L0-mag-squared)))
+                                     (* w w T-L-mag-squared Y-L0-mag-squared)))
                                  T-amplitudes))]
      sum-over-L)))
 
@@ -1657,12 +1689,14 @@
    (let [T-map {0 1.0, 1 0.5}]
      (transfer-angular-distribution-function T-map 0 Math/PI 100))"
   ([T-amplitudes theta-min theta-max n-points]
-   (transfer-angular-distribution-function T-amplitudes theta-min theta-max n-points 0.0))
+   (transfer-angular-distribution-function T-amplitudes theta-min theta-max n-points 0.0 nil nil))
   ([T-amplitudes theta-min theta-max n-points phi]
+   (transfer-angular-distribution-function T-amplitudes theta-min theta-max n-points phi nil nil))
+  ([T-amplitudes theta-min theta-max n-points phi l-i l-f]
    (let [d-theta (/ (- theta-max theta-min) (dec n-points))
          thetas (map #(+ theta-min (* % d-theta)) (range n-points))]
      (mapv (fn [theta]
-             [theta (transfer-angular-distribution T-amplitudes theta phi)])
+             [theta (transfer-angular-distribution T-amplitudes theta phi l-i l-f)])
            thetas))))
 
 (defn sum-over-magnetic-substates
@@ -1778,10 +1812,12 @@
          S 0.5]
      (transfer-differential-cross-section-angular T-map S k-i k-f (/ Math/PI 2) mass-factor-i mass-factor-f))"
   ([T-amplitudes S-factor k-i k-f theta mass-factor-i mass-factor-f]
-   (transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f theta mass-factor-i mass-factor-f 0.0))
+   (transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f theta mass-factor-i mass-factor-f 0.0 nil nil))
   ([T-amplitudes S-factor k-i k-f theta mass-factor-i mass-factor-f phi]
-   (let [;; Get angular distribution (sum over L: |T_L|² · |Y_L0|²)
-         angular-dist (transfer-angular-distribution T-amplitudes theta phi)
+   (transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f theta mass-factor-i mass-factor-f phi nil nil))
+  ([T-amplitudes S-factor k-i k-f theta mass-factor-i mass-factor-f phi l-i l-f]
+   (let [;; Get angular distribution (sum over L: |w_L·T_L|² · |Y_L0|²; w_L from l-i, l-f when provided)
+         angular-dist (transfer-angular-distribution T-amplitudes theta phi l-i l-f)
          ;; Combined prefactor (mass-factor-i * mass-factor-f) / (16π²)
          prefactor (/ (* mass-factor-i mass-factor-f)
                      (* 16.0 Math/PI Math/PI))
