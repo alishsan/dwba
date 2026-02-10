@@ -644,6 +644,7 @@
    Parameters:
    - V-params: Woods-Saxon parameters [V0, R0, a0]
    - l: Orbital angular momentum
+   - n: (optional) Principal/radial quantum number; when provided (5-arg), used for search range
    - r-max: Maximum radius for integration
    - h: Step size
    - E-min: Minimum energy to search (default: -V0, the potential depth)
@@ -661,6 +662,20 @@
   ([V-params l r-max h]
    (let [v0 (first V-params)]
      (find-bound-state-energy V-params l r-max h (- v0) -0.1 0.01)))
+  ([V-params l n r-max h]
+   ;; 5-arg: n = principal quantum number (1,2,...), target radial nodes = n - 1
+   (let [v0 (first V-params)
+         target-nodes (max 0 (dec n))
+         tolerance 0.01
+         [E-min E-max] (get-energy-search-range n l v0)
+         candidates (find-energy-with-nodes E-min E-max 150 target-nodes V-params l r-max h)
+         best (first (sort-by #(Math/abs (:boundary-value %)) (or candidates [])))
+         E-guess (when best (:energy best))
+         refined (when E-guess (refine-bound-state-energy E-guess target-nodes V-params l r-max h tolerance))]
+     (or refined
+         (try-wider-search v0 target-nodes V-params l r-max h tolerance)
+         ;; fallback: 4-arg (first sign change, often ground state)
+         (find-bound-state-energy V-params l r-max h))))
   ([V-params l r-max h E-min E-max tolerance]
    (let [v0 (first V-params)
          rad (second V-params)
@@ -1798,12 +1813,12 @@
    - S-factor: Spectroscopic factor
    - k-i: Wavenumber in entrance channel (fm⁻¹)
    - k-f: Wavenumber in exit channel (fm⁻¹)
-   - theta: Scattering angle (radians)
+   - theta: Scattering angle in center-of-mass frame (radians)
    - mass-factor-i: Entrance channel mass factor (2μ_i/ħ²)
    - mass-factor-f: Exit channel mass factor (2μ_f/ħ²)
    - phi: Azimuthal angle (radians, default 0)
    
-   Returns: dσ/dΩ(θ) in fm²/sr
+   Returns: dσ/dΩ(θ) in fm²/sr (CM frame). Use transfer-cm-to-lab to convert to lab.
    
    Example:
    (let [T-map {0 1.0, 1 0.5, 2 0.2}

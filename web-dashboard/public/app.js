@@ -99,6 +99,24 @@ class DWBADashboard {
         document.getElementById('transfer_target')?.addEventListener('change', () => {
             this.loadTransferDefault();
         });
+
+        // Inelastic target: set E_ex and β from preset
+        const inelasticPresets = {
+            '12C': { E_ex: 4.44, beta: 0.25, lambda: '2' },
+            '16O': { E_ex: 6.13, beta: 0.2, lambda: '2' }
+        };
+        document.getElementById('inelastic_target')?.addEventListener('change', () => {
+            const sel = document.getElementById('inelastic_target');
+            const preset = sel && inelasticPresets[sel.value];
+            if (preset) {
+                const eEx = document.getElementById('E_ex');
+                const beta = document.getElementById('beta');
+                const lambda = document.getElementById('lambda');
+                if (eEx) eEx.value = preset.E_ex;
+                if (beta) beta.value = preset.beta;
+                if (lambda) lambda.value = preset.lambda;
+            }
+        });
     }
 
     _setButtonLoading(btnId, loading) {
@@ -165,7 +183,8 @@ class DWBADashboard {
         document.getElementById('L-values').value = params.L_values.join(',');
         
         if (params.E_ex !== undefined) document.getElementById('E_ex').value = params.E_ex;
-        if (params.lambda !== undefined) document.getElementById('lambda').value = params.lambda;
+        if (params.lambdas !== undefined) document.getElementById('lambda').value = Array.isArray(params.lambdas) ? params.lambdas.join(',') : String(params.lambdas);
+        else if (params.lambda !== undefined) document.getElementById('lambda').value = params.lambda;
         if (params.beta !== undefined) document.getElementById('beta').value = params.beta;
         if (params.reaction_type !== undefined) document.getElementById('reaction_type').value = params.reaction_type;
         
@@ -177,24 +196,41 @@ class DWBADashboard {
     }
 
     getParameters() {
+        const num = (id, fallback) => {
+            const el = document.getElementById(id);
+            const v = el ? parseFloat(el.value) : NaN;
+            return (v !== undefined && !Number.isNaN(v)) ? v : fallback;
+        };
+        const int = (id, fallback) => {
+            const el = document.getElementById(id);
+            const v = el ? parseInt(el.value, 10) : NaN;
+            return (v !== undefined && !Number.isNaN(v)) ? v : fallback;
+        };
+        const energyRangeEl = document.getElementById('energy-range');
+        const lValuesEl = document.getElementById('L-values');
+        const defaultEnergies = [5, 10, 15, 20, 25, 30];
+        const defaultL = [0, 1, 2, 3, 4, 5];
+        let energies = (energyRangeEl && energyRangeEl.value || '')
+            .split(',').map(s => s.trim()).filter(s => s.length > 0);
+        let L_values = (lValuesEl && lValuesEl.value || '')
+            .split(',').map(s => s.trim()).filter(s => s.length > 0);
+        if (energies.length === 0) energies = defaultEnergies.map(String);
+        if (L_values.length === 0) L_values = defaultL.map(String);
         return {
-            V0: parseFloat(document.getElementById('V0').value),
-            R0: parseFloat(document.getElementById('R0').value),
-            a0: parseFloat(document.getElementById('a0').value),
-            radius: parseFloat(document.getElementById('radius').value),
-            energies: document.getElementById('energy-range').value
-                .split(',')
-                .map(s => s.trim())
-                .filter(s => s.length > 0),
-            L_values: document.getElementById('L-values').value
-                .split(',')
-                .map(s => s.trim())
-                .filter(s => s.length > 0),
-            E_ex: parseFloat(document.getElementById('E_ex').value),
-            lambda: parseInt(document.getElementById('lambda').value),
-            beta: parseFloat(document.getElementById('beta').value),
-            reaction_type: document.getElementById('reaction_type').value,
-            target: (document.getElementById('transfer_target') || {}).value || '16O'
+            V0: num('V0', 40),
+            R0: num('R0', 2),
+            a0: num('a0', 0.6),
+            radius: num('radius', 3),
+            energies,
+            L_values,
+            E_ex: num('E_ex', 4.44),
+            lambda: int('lambda', 2),
+            lambdas: (document.getElementById('lambda') || {}).value || '2',  // e.g. "2" or "2,3,4" for multiple multipoles
+            beta: num('beta', 0.25),
+            reaction_type: (document.getElementById('reaction_type') || {}).value || 'p-d',
+            target: (document.getElementById('transfer_target') || {}).value || '16O',
+            projectile: (document.getElementById('inelastic_projectile') || {}).value || 'p',
+            inelastic_target: (document.getElementById('inelastic_target') || {}).value || '12C'
         };
     }
 
@@ -608,30 +644,38 @@ class DWBADashboard {
         if (!data || data.length === 0) return;
 
         const traces = {};
-        
-        // Group by L
+        const groupByLambda = data[0] && data[0].lambda !== undefined;
+
         data.forEach(point => {
-            const L = point.L;
-            if (!traces[L]) {
-                traces[L] = {
+            const key = groupByLambda ? point.lambda : point.L;
+            const label = groupByLambda ? `λ = ${key}` : `L = ${key}`;
+            if (!traces[key]) {
+                traces[key] = {
                     x: [],
                     y: [],
-                    name: `L = ${L}`,
+                    name: label,
                     type: 'scatter',
                     mode: 'lines+markers',
                     line: { width: 3 },
                     marker: { size: 6 }
                 };
             }
-            traces[L].x.push(point.energy);
-            traces[L].y.push(point.differential_cross_section);
+            traces[key].x.push(point.energy);
+            traces[key].y.push(point.differential_cross_section);
         });
 
         const plotData = Object.values(traces);
+        const projEl = document.getElementById('inelastic_projectile');
+        const tgtEl = document.getElementById('inelastic_target');
+        const projLabels = { p: 'p', n: 'n', d: 'd', a: 'α' };
+        const tgtLabels = { '12C': '¹²C', '16O': '¹⁶O', generic: 'target' };
+        const proj = projLabels[projEl?.value] || projEl?.value || 'p';
+        const tgt = tgtLabels[tgtEl?.value] || tgtEl?.value || '';
+        const reactionLabel = tgt ? `${proj} + ${tgt} ` : '';
         const layout = {
-            title: 'Inelastic Scattering Differential Cross-Section',
+            title: reactionLabel + (groupByLambda ? 'inelastic dσ/dΩ by multipole λ (summed over L)' : 'Inelastic Scattering Differential Cross-Section'),
             xaxis: { title: 'Energy (MeV)', gridcolor: '#e0e0e0' },
-            yaxis: { title: 'dσ/dΩ (fm²/sr)', type: 'log', gridcolor: '#e0e0e0' },
+            yaxis: { title: 'dσ/dΩ (mb/sr)', type: 'log', gridcolor: '#e0e0e0' },
             plot_bgcolor: 'rgba(0,0,0,0)',
             paper_bgcolor: 'rgba(0,0,0,0)',
             font: { family: 'Arial, sans-serif' },
@@ -646,23 +690,28 @@ class DWBADashboard {
         const data = this.currentData.transfer;
         if (!data || data.length === 0) return;
 
-        // Default 16O(p,d) data has angle; Calculate returns energy + L
+        // Data can be DCS vs. angle (has angle) or legacy DCS vs. E per L
         const hasAngle = data[0] && data[0].angle !== undefined;
 
         let plotData, xTitle;
         if (hasAngle) {
-            const E = data[0].energy;
-            const label = this.currentData.transferTargetLabel || '16O(p,d)15O';
-            plotData = [{
-                x: data.map(p => p.angle),
-                y: data.map(p => p.differential_cross_section),
-                name: `${label}, E = ${E} MeV`,
-                type: 'scatter',
-                mode: 'lines+markers',
-                line: { width: 3 },
-                marker: { size: 6 }
-            }];
-            xTitle = 'Scattering angle (degrees)';
+            xTitle = 'Scattering angle (CM, degrees)';
+            const energies = [...new Set(data.map(p => p.energy))].sort((a, b) => a - b);
+            const label = this.currentData.transferTargetLabel || 'Transfer (p,d)';
+            // Log scale can't show 0; floor tiny values so L=1 node at 90° doesn't drop off chart
+            const logFloor = 1e-40;
+            plotData = energies.map(E => {
+                const pts = data.filter(p => p.energy === E);
+                return {
+                    x: pts.map(p => p.angle),
+                    y: pts.map(p => Math.max(p.differential_cross_section, logFloor)),
+                    name: energies.length > 1 ? `E = ${E} MeV` : `${label}, E = ${E} MeV`,
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    line: { width: 3 },
+                    marker: { size: 6 }
+                };
+            });
         } else {
             const traces = {};
             data.forEach(point => {
@@ -686,9 +735,11 @@ class DWBADashboard {
         }
 
         const layout = {
-            title: 'Transfer Reaction Differential Cross-Section',
+            title: hasAngle
+                ? 'Transfer Reaction Differential Cross-Section (dσ/dΩ vs angle; zero at 90° for L=1 is physical)'
+                : 'Transfer Reaction Differential Cross-Section',
             xaxis: { title: xTitle, gridcolor: '#e0e0e0' },
-            yaxis: { title: 'dσ/dΩ (fm²/sr)', type: 'log', gridcolor: '#e0e0e0' },
+            yaxis: { title: 'dσ/dΩ (mb/sr)', type: 'log', gridcolor: '#e0e0e0' },
             plot_bgcolor: 'rgba(0,0,0,0)',
             paper_bgcolor: 'rgba(0,0,0,0)',
             font: { family: 'Arial, sans-serif' },

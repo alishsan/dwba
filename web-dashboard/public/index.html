@@ -338,7 +338,29 @@
                 <div class="tab-pane fade" id="inelastic-panel" role="tabpanel">
                     <div class="control-panel mb-3">
                         <h4><i class="fas fa-exchange-alt"></i> Inelastic Scattering Parameters</h4>
+                        <p class="text-muted small mb-2">Projectile + target define the reaction (e.g. p + ¹²C). Target sets typical E_ex and β (λ=2). Woods-Saxon V₀, R₀, a₀ are shared with Elastic.</p>
                         <div class="row">
+                            <div class="col-md-4">
+                                <div class="parameter-group">
+                                    <label for="inelastic_projectile">Projectile</label>
+                                    <select class="form-select" id="inelastic_projectile">
+                                        <option value="p" selected>Proton (p)</option>
+                                        <option value="n">Neutron (n)</option>
+                                        <option value="d">Deuteron (d)</option>
+                                        <option value="a">Alpha (α)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="parameter-group">
+                                    <label for="inelastic_target">Target nucleus</label>
+                                    <select class="form-select" id="inelastic_target">
+                                        <option value="12C" selected>¹²C (E_ex=4.44 MeV, β₂=0.25)</option>
+                                        <option value="16O">¹⁶O (E_ex=6.13 MeV, β₂=0.2)</option>
+                                        <option value="generic">Generic (use E_ex, β below)</option>
+                                    </select>
+                                </div>
+                            </div>
                             <div class="col-md-4">
                                 <div class="parameter-group">
                                     <label for="E_ex">Excitation Energy E_ex (MeV)</label>
@@ -347,8 +369,8 @@
                             </div>
                             <div class="col-md-4">
                                 <div class="parameter-group">
-                                    <label for="lambda">Multipole Order λ</label>
-                                    <input type="number" class="form-control" id="lambda" value="2" step="1" min="1" max="5">
+                                    <label for="lambda">Multipole λ (one or comma-separated: 2 or 2,3,4)</label>
+                                    <input type="text" class="form-control" id="lambda" value="2" placeholder="2 or 2,3,4">
                                 </div>
                             </div>
                             <div class="col-md-4">

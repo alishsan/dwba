@@ -660,6 +660,23 @@
 ;; PHASE 4: INELASTIC SCATTERING AMPLITUDE
 ;; ============================================================================
 
+(defn- normalize-wave-max
+  "Normalize wavefunction vector to max |u| = 1 so amplitudes/cross sections stay in a reasonable scale.
+   solve-numerov returns u(r) with arbitrary scale; without this, inelastic dσ can be 10^40+ fm²/sr."
+  [u]
+  (let [max-mag (reduce (fn [acc val]
+                          (let [m (if (number? val) (Math/abs val) (mag val))]
+                            (if (and (Double/isFinite m) (> m acc)) m acc)))
+                        0.0
+                        u)]
+    (if (and (pos? max-mag) (Double/isFinite max-mag))
+      (mapv (fn [val]
+              (if (number? val)
+                (/ val max-mag)
+                (mul val (/ 1.0 max-mag))))
+            u)
+      u)))
+
 (defn distorted-wave-entrance
   "Calculate distorted wave for entrance channel (elastic scattering).
    
@@ -718,9 +735,10 @@
       (transfer/distorted-wave-optical E-i L-i s j-val U-fn r-max h mf))
     
     ;; Fall back to simple real potential (backward compatible)
+    ;; Normalize to max|u|=1 so dσ is in a reasonable scale (otherwise 10^40+ fm²/sr)
     :else
     (let [[V0 R0 a0] V-params]
-      (solve-numerov E-i L-i V0 R0 a0 h r-max))))
+      (normalize-wave-max (solve-numerov E-i L-i V0 R0 a0 h r-max)))))
 
 (defn distorted-wave-exit
   "Calculate distorted wave for exit channel (inelastic scattering).
@@ -782,9 +800,10 @@
         (transfer/distorted-wave-optical E-f L-f s j-val U-fn r-max h mf))
       
       ;; Fall back to simple real potential (backward compatible)
+      ;; Normalize to max|u|=1 so dσ is in a reasonable scale
       :else
       (let [[V0 R0 a0] V-params]
-        (solve-numerov E-f L-f V0 R0 a0 h r-max)))))
+        (normalize-wave-max (solve-numerov E-f L-f V0 R0 a0 h r-max))))))
 
 (defn transition-potential-radial
   "Calculate transition potential at radial distance r.
@@ -822,7 +841,9 @@
 (defn inelastic-amplitude-radial
   "Calculate inelastic scattering amplitude (radial integration only).
    
-   The inelastic amplitude is: T_inel = ∫ χ*_f(r) V_transition(r) χ_i(r) r² dr
+   The inelastic amplitude is: T_inel = ∫ u*_f(r) V_transition(r) u_i(r) dr
+   where u(r) = r R(r) is the radial wavefunction from the Schrödinger equation.
+   The volume element r² is absorbed in u (∫ u² dr = ∫ R² r² dr), so no r² in the integrand.
    
    This is a simplified version that integrates only over radial coordinates.
    For full 3D integration including angular parts, use inelastic-amplitude-full.
@@ -873,10 +894,7 @@
                                                         (complex-cartesian V-trans-val 0.0)
                                                         V-trans-val)]
                                           (mul chi-f-conj V-complex chi-i-complex)))]
-                           (let [r-squared (* r r)]
-                             (if (number? product)
-                               (* product r-squared)
-                               (mul product r-squared)))))
+                           product))
                        (range n))
         ;; Simpson's rule integration
         simpson-sum (loop [i 1 sum 0.0]

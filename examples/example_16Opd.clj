@@ -6,21 +6,24 @@
 ;; Reaction: 16O(p,d)15O
 ;; - Initial: neutron bound in 16O (l=1, E=-15.67 MeV)
 ;; - Final: neutron bound in deuteron (l=0, E=-2.214 MeV)
-
 ;;
 ;; Reference parameters:
 ;; - 16O: R0 = 2.7 fm, V0 = 62 MeV, a0 = 0.6 fm, l=1
 ;; - Deuteron: R0 = 1.5 fm, V0 = 50 MeV, a0 = 0.6 fm, l=0
+;;
+;; Use (load-file "examples/example_16Opd.clj") or run from project root.
+;; Own namespace avoids alias conflicts with dwba.core when loaded from REPL.
 
-(require '[dwba.transfer :as t])
-(require '[dwba.form-factors :as ff])
-(require '[dwba.inelastic :as inel])
-(require '[functions :refer [solve-numerov mass-factor]])
-(require '[fastmath.core :as m])
-(require '[complex :as c :refer [mag re im complex-cartesian add mul]])
-(require '[incanter.core :as i])
-(require '[incanter.charts :as c])
-(require '[clojure.java.io :as io])
+(ns examples.example-16Opd
+  (:require [dwba.transfer :as t]
+            [dwba.form-factors :as ff]
+            [dwba.inelastic :as inel]
+            [functions :refer [solve-numerov mass-factor]]
+            [fastmath.core :as m]
+            [complex :as cx :refer [mag re im complex-cartesian add mul]]
+            [incanter.core :as i]
+            [incanter.charts :as c]
+            [clojure.java.io :as io]))
 
 (println "=== 16O(p,d) Transfer Reaction Calculation ===")
 (println "")
@@ -167,7 +170,15 @@
       dsigma-mb-sr (mapv (fn [theta-rad]
                            (* 10.0 (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f
                                                                                   theta-rad mass-factor-i mass-factor-f 0.0 l-i l-f)))
-                         angles-rad)]
+                         angles-rad)
+      ;; Same angle set as web dashboard: 20° to 160° step 20° (CM)
+      angles-output-deg (range 20.0 181.0 20.0)
+      dsigma-at-angles (mapv (fn [theta-deg]
+                               (let [theta-rad (* theta-deg (/ Math/PI 180.0))
+                                     dsigma-fm2 (t/transfer-differential-cross-section-angular T-amplitudes S-factor k-i k-f
+                                                                                               theta-rad mass-factor-i mass-factor-f 0.0 l-i l-f)]
+                                 (* 10.0 dsigma-fm2)))
+                             angles-output-deg)]
   
   ;; ============================================================================
   ;; Output
@@ -280,6 +291,11 @@
   (println (format "  dσ/dΩ(θ=%.1f°) = %.6e fm²/sr" theta-70-deg dsigma-70))
   (println (format "  dσ/dΩ(θ=%.1f°) = %.6e mb/sr (experiment at 20 MeV, 70°: ~0.5 mb/sr)" theta-70-deg (* dsigma-70 10.0)))
   (println "")
+  (println "DCS at different angles (CM, same as web dashboard; mb/sr):")
+  (println "  Angle (deg) | dσ/dΩ (mb/sr)")
+  (doseq [[theta-deg dsigma-mb] (map vector angles-output-deg dsigma-at-angles)]
+    (println (format "  θ = %5.1f°   | %.6e" theta-deg dsigma-mb)))
+  (println "")
 
   (println "=== Summary ===")
   (println (format "Reaction: 16O(p,d)15O"))
@@ -304,7 +320,7 @@
       (i/save chart "output/16Opd_dcs.png" :width 800 :height 500)
       (println "Plot saved: output/16Opd_dcs.png"))
     (catch Exception e
-      (println (format "Note: Could not save plot (%s). Create output/ directory or check Incanter." (.getMessage e)))))))
+      (println (format "Note: Could not save plot (%s). Create output/ directory or check Incanter." (.getMessage e)))))
 
   ;; Return the differential cross section
   dsigma
