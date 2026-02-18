@@ -334,7 +334,8 @@
 (defn whittaker-w
   "Calculate asymptotic form for bound state wavefunction.
    
-   For neutral systems: u(r) ~ C * r^l * e^(-κr) for large r
+   For neutral systems: u(r) ~ C * e^(-κr) / r^l for large r
+   (Following convention in transfer.clj: u(r) → C · e^(-κr) / r^l)
    For charged systems: u(r) ~ C * W_{-η, l+1/2}(2κr)
    
    Parameters:
@@ -343,16 +344,16 @@
    - eta: Effective Sommerfeld parameter (0 for neutral systems)
    - l: Angular momentum
    
-   Returns: Asymptotic form value (for extracting ANC: C = u(r) / this_value)
+   Returns: Asymptotic form value (for extracting ANC: C = u(r) * r^l / e^(-κr))
    
    Note: This is a simplified implementation. For production use,
    consider using a specialized library for Whittaker functions."
   [r kappa eta l]
   (if (zero? eta)
-    ;; For neutral systems: asymptotic form is r^l * e^(-κr)
+    ;; For neutral systems: asymptotic form is e^(-κr) / r^l
     (let [r-power (if (zero? l) 1.0 (m/pow r l))
           exp-term (Math/exp (* (- kappa) r))]
-      (* r-power exp-term))
+      (/ exp-term r-power))
     ;; For charged systems: use Whittaker form W_{-η, l+1/2}(2κr)
     (let [z (* 2.0 kappa r)
           exp-term (Math/exp (/ (- z) 2.0))
@@ -398,11 +399,16 @@
             (- (nth r-vec 1) (nth r-vec 0))
             0.01)
         
-        ;; Find indices in fitting region (r >= r-match)
-        idx-min (int (/ r-match h))
-        idx-max (dec (count u-wave))
-        idx-min-safe (max 0 (min idx-min idx-max))
-        idx-max-safe (min idx-max (count u-wave))
+        ;; Find indices in fitting region
+        ;; Use a region that's well outside the nuclear potential (r > 5 fm typically)
+        ;; but not too far where numerical errors dominate
+        ;; For halo nuclei, use r between ~5-15 fm for fitting (before too much decay)
+        r-fit-min (max 5.0 (min r-match 10.0))  ; Start at 5-10 fm
+        r-fit-max (min (last r-vec) (+ r-fit-min 15.0))  ; Use 15 fm range for fitting
+        idx-min (int (/ r-fit-min h))
+        idx-max (int (/ r-fit-max h))
+        idx-min-safe (max 0 (min idx-min (dec (count u-wave))))
+        idx-max-safe (min idx-max (dec (count u-wave)))
         
         ;; Extract wavefunction values in fitting region
         fit-data (filter (fn [{:keys [r u]}]
@@ -534,11 +540,15 @@
    
    Properties: E_b = 504 keV, l = 0, S_{1/2} state
    
+   Note: The potential parameters [V0 R a] are approximate and may need
+   adjustment to exactly reproduce the experimental binding energy and ANC.
+   The ANC is very sensitive to the potential shape.
+   
    Returns: Map with wavefunction, ANC, and matching radius"
   []
   (let [E-b 0.504 ; MeV
         l 0
-        V-params [62.0 2.7 0.6] ; [V0 R a]
+        V-params [62.0 2.7 0.6] ; [V0 R a] - may need adjustment
         mu 869.4 ; MeV/c²
         h 0.01 ; fm
         r-max 50.0 ; fm
@@ -554,6 +564,8 @@
         r-values (mapv #(* % h) (range (count u)))
         
         ;; Extract ANC from normalized wavefunction
+        ;; Note: Potential parameters may need adjustment to reproduce experimental binding energy
+        ;; The ANC is sensitive to the wavefunction shape, which depends on the potential
         anc (extract-anc u r-values E-b mu 0 0 l r-match)]
     
     {:wavefunction u
@@ -567,11 +579,15 @@
    
    Properties: E_b = 137 keV, l = 2, p-wave proton halo
    
+   Note: The potential parameters [V0 R a] are approximate and may need
+   adjustment to exactly reproduce the experimental binding energy and ANC.
+   For ⁸B, Coulomb effects should also be included (Z1=4, Z2=1).
+   
    Returns: Map with wavefunction, ANC, and matching radius"
   []
   (let [E-b 0.137 ; MeV
         l 2
-        V-params [50.0 2.0 0.6] ; [V0 R a]
+        V-params [50.0 2.0 0.6] ; [V0 R a] - may need adjustment
         mu 745.0 ; MeV/c² (approximate for ⁷Be+p)
         h 0.01 ; fm
         r-max 60.0 ; fm
