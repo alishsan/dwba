@@ -299,30 +299,65 @@
 ;; 4. Asymptotic Normalization Coefficient (ANC) Extraction
 ;; ============================================================================
 
+(defn normalize-bound-state
+  "Normalize bound state wavefunction so that ∫₀^∞ |u(r)|² dr = 1.
+   
+   Uses Simpson's rule for integration.
+   
+   Parameters:
+   - u: Wavefunction vector
+   - h: Step size (fm)
+   
+   Returns: Normalized wavefunction vector"
+  [u h]
+  (when (or (nil? u) (empty? u))
+    (throw (IllegalArgumentException. 
+            (format "Cannot normalize empty or nil wavefunction"))))
+  (let [integrand (mapv #(* % %) u)
+        n (count integrand)]
+    (when (< n 2)
+      (throw (IllegalArgumentException. 
+              (format "Wavefunction too short for normalization: %d points" n))))
+    (let [simpson-sum (loop [i 1 sum 0.0]
+                        (if (>= i (dec n))
+                          sum
+                          (let [coeff (if (odd? i) 4.0 2.0)
+                                term (* coeff (get integrand i))]
+                            (recur (inc i) (+ sum term)))))
+          integral (* (/ h 3.0) 
+                      (+ (first integrand) 
+                         (last integrand) 
+                         simpson-sum))
+          norm-factor (if (zero? integral) 1.0 (/ 1.0 (Math/sqrt integral)))]
+      (mapv #(* % norm-factor) u))))
+
 (defn whittaker-w
-  "Calculate Whittaker function W_{-η, l+1/2}(2κr) for bound states.
+  "Calculate asymptotic form for bound state wavefunction.
    
-   For large r, this gives the asymptotic form of the bound state wavefunction.
-   
-   Uses approximation: W_{-η, l+1/2}(z) ≈ z^{-η} e^{-z/2} for large z
+   For neutral systems: u(r) ~ C * r^l * e^(-κr) for large r
+   For charged systems: u(r) ~ C * W_{-η, l+1/2}(2κr)
    
    Parameters:
    - r: Radius (fm)
    - kappa: Decay constant (fm⁻¹)
    - eta: Effective Sommerfeld parameter (0 for neutral systems)
-   - _l: Angular momentum (not used in simplified form)
+   - l: Angular momentum
    
-   Returns: Whittaker function value
+   Returns: Asymptotic form value (for extracting ANC: C = u(r) / this_value)
    
    Note: This is a simplified implementation. For production use,
    consider using a specialized library for Whittaker functions."
-  [r kappa eta _l]
-  (let [z (* 2.0 kappa r)
-        ;; Simplified form for large r: W_{-η, l+1/2}(z) ≈ z^{-η} e^{-z/2}
-        ;; More accurate would require confluent hypergeometric functions
-        exp-term (Math/exp (/ (- z) 2.0))
-        power-term (m/pow z (- eta))]
-    (* power-term exp-term)))
+  [r kappa eta l]
+  (if (zero? eta)
+    ;; For neutral systems: asymptotic form is r^l * e^(-κr)
+    (let [r-power (if (zero? l) 1.0 (m/pow r l))
+          exp-term (Math/exp (* (- kappa) r))]
+      (* r-power exp-term))
+    ;; For charged systems: use Whittaker form W_{-η, l+1/2}(2κr)
+    (let [z (* 2.0 kappa r)
+          exp-term (Math/exp (/ (- z) 2.0))
+          power-term (m/pow z (- eta))]
+      (* power-term exp-term))))
 
 (defn extract-anc
   "Extract Asymptotic Normalization Coefficient from bound state wavefunction.
@@ -330,8 +365,14 @@
    The ANC C is extracted from the asymptotic form:
    u_l(r) ~ C W_{-η, l+1/2}(2κr) as r → ∞
    
+   For neutral systems with l=0: u(r) ~ C e^(-κr)
+   
+   Note: The wavefunction should be normalized (∫|u(r)|² dr = 1) for
+   comparison with experimental ANC values. The Numerov solution may
+   have an arbitrary normalization depending on initial conditions.
+   
    Parameters:
-   - u-wave: Vector of wavefunction values
+   - u-wave: Vector of wavefunction values (may be unnormalized)
    - r-values: Vector of corresponding radii
    - E-b: Binding energy (MeV)
    - mu: Reduced mass (MeV/c²)
@@ -339,7 +380,7 @@
    - l: Angular momentum
    - r-match: Matching radius in asymptotic region (fm)
    
-   Returns: ANC in fm^(-1/2)
+   Returns: ANC in fm^(-1/2) (proportional to wavefunction normalization)
    
    Example:
    (let [u (solve-bound-state-numerov 0.504 0 [62.0 2.7 0.6] 869.4 0.01 50.0)
@@ -347,36 +388,74 @@
      (extract-anc u r 0.504 869.4 0 0 0 30.0))
    => ANC for ¹¹Be"
   [u-wave r-values E-b mu Z1 Z2 l r-match]
-  (let [kappa (Math/sqrt (/ (* 2.0 mu E-b) (* hbarc hbarc)))
-        k (Math/sqrt (/ (* 2.0 mu E-b) (* hbarc hbarc)))
+  (let [r-vec (vec r-values)
+        kappa (Math/sqrt (/ (* 2.0 mu E-b) (* hbarc hbarc)))
         eta-val (if (and (zero? Z1) (zero? Z2))
                   0.0
-                  (sommerfeld-parameter Z1 Z2 mu k))
+                  (let [k (Math/sqrt (/ (* 2.0 mu E-b) (* hbarc hbarc)))]
+                    (sommerfeld-parameter Z1 Z2 mu k)))
+        h (if (> (count r-vec) 1)
+            (- (nth r-vec 1) (nth r-vec 0))
+            0.01)
         
-        ;; Find index closest to r_match
-        match-idx (first (keep-indexed
-                          (fn [i r] (when (>= r r-match) i))
-                          r-values))
+        ;; Find indices in fitting region (r >= r-match)
+        idx-min (int (/ r-match h))
+        idx-max (dec (count u-wave))
+        idx-min-safe (max 0 (min idx-min idx-max))
+        idx-max-safe (min idx-max (count u-wave))
         
-        ;; Use several points in asymptotic region for averaging
-        n-points 10
-        start-idx (max 0 (- match-idx (int (/ n-points 2))))
-        end-idx (min (count u-wave) (+ start-idx n-points))
-        
-        ;; Extract ANC from each point and average
-        anc-values (for [i (range start-idx end-idx)]
-                     (let [r (nth r-values i)
-                           u (nth u-wave i)
-                           w (whittaker-w r kappa eta-val l)]
-                       (if (and (> (Math/abs w) 1e-10) (> (Math/abs u) 1e-10))
-                         (/ u w)
-                         nil)))
-        
-        valid-ancs (filter some? anc-values)]
+        ;; Extract wavefunction values in fitting region
+        fit-data (filter (fn [{:keys [r u]}]
+                          (and (> (Math/abs u) 1e-10)
+                               (> r 0.1)))
+                        (mapv (fn [i]
+                                (let [r (nth r-vec i)
+                                      u (nth u-wave i)]
+                                  {:r r :u u}))
+                              (range idx-min-safe (inc idx-max-safe))))]
     
-    (if (seq valid-ancs)
-      (/ (reduce + valid-ancs) (count valid-ancs))
-      0.0)))
+    (if (or (empty? fit-data) (< (count fit-data) 3))
+      0.0
+      (if (zero? eta-val)
+        ;; For neutral systems: u(r) = C * e^(-κr) / r^l
+        ;; Taking logarithm: ln(u * r^l) = ln(C) - κr
+        (let [fit-values (mapv (fn [{:keys [r u]}]
+                                 (let [r-l (if (zero? l)
+                                            1.0
+                                            (m/pow r l))
+                                      u-times-rl (* u r-l)
+                                      log-u (if (and (> u-times-rl 0) (> u-times-rl 1e-10))
+                                             (Math/log u-times-rl)
+                                             -100.0)]
+                                   {:r r :y log-u}))
+                               fit-data)
+              valid-values (filter #(> (:y %) -50.0) fit-values)]
+          (if (and (seq valid-values) (> (count valid-values) 2))
+            (let [n (count valid-values)
+                  sum-r (reduce + (map :r valid-values))
+                  sum-y (reduce + (map :y valid-values))
+                  sum-r2 (reduce + (map #(* (:r %) (:r %)) valid-values))
+                  sum-ry (reduce + (map #(* (:r %) (:y %)) valid-values))
+                  ;; Linear regression: y = a + b*r, where y = ln(u*r^l), a = ln(C), b = -κ
+                  denominator (- (* n sum-r2) (* sum-r sum-r))
+                  intercept (if (> (Math/abs denominator) 1e-10)
+                             (/ (- (* sum-y sum-r2) (* sum-r sum-ry)) denominator)
+                             (Math/log (Math/abs (first (map :u fit-data)))))
+                  anc (Math/exp intercept)]
+              anc)
+            0.0))
+        ;; For charged systems: use Whittaker function method
+        (let [n-points (min 20 (count fit-data))
+              anc-values (for [i (range (min n-points (count fit-data)))]
+                          (let [{:keys [r u]} (nth fit-data i)
+                                w (whittaker-w r kappa eta-val l)]
+                            (if (and (> (Math/abs w) 1e-10) (> (Math/abs u) 1e-10))
+                              (/ u w)
+                              nil)))
+              valid-ancs (filter some? anc-values)]
+          (if (seq valid-ancs)
+            (/ (reduce + valid-ancs) (count valid-ancs))
+            0.0))))))
 
 ;; ============================================================================
 ;; 5. Low-Energy Scattering
@@ -469,10 +548,12 @@
         r-match (adaptive-matching-radius R E-b mu)
         
         ;; Solve bound state
-        u (solve-bound-state-numerov E-b l V-params mu h r-max)
-        r-values (map #(* % h) (range (count u)))
+        u-raw (solve-bound-state-numerov E-b l V-params mu h r-max)
+        ;; Normalize wavefunction
+        u (normalize-bound-state u-raw h)
+        r-values (mapv #(* % h) (range (count u)))
         
-        ;; Extract ANC
+        ;; Extract ANC from normalized wavefunction
         anc (extract-anc u r-values E-b mu 0 0 l r-match)]
     
     {:wavefunction u
@@ -498,8 +579,10 @@
         R (second V-params)
         r-match (adaptive-matching-radius R E-b mu)
         
-        u (solve-bound-state-numerov E-b l V-params mu h r-max)
-        r-values (map #(* % h) (range (count u)))
+        u-raw (solve-bound-state-numerov E-b l V-params mu h r-max)
+        ;; Normalize wavefunction
+        u (normalize-bound-state u-raw h)
+        r-values (mapv #(* % h) (range (count u)))
         
         ;; For ⁸B, Z1=4 (⁷Be), Z2=1 (proton)
         anc (extract-anc u r-values E-b mu 4 1 l r-match)]
