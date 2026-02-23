@@ -76,7 +76,9 @@
 (defn- query-param [request param-name]
   (when-let [q (str (:query-string request))]
     (when-let [match (re-find (re-pattern (str (str/replace param-name #"\s" "") "=([^&]*)")) q)]
-      (str/trim (second match)))))
+      (let [v (str/trim (second match))]
+        (when-not (str/blank? v)
+          (try (java.net.URLDecoder/decode v "UTF-8") (catch Exception _ v)))))))
 
 ;; Target nucleus params for (p,d) default plot
 (def ^:private transfer-targets
@@ -181,9 +183,10 @@
        (catch Exception _ nil)))
 
 (defn- parse-doubles [xs]
-  (let [toks (filter (fn [x] (not (str/blank? (str x)))) (tokens-from xs))
-        parsed (mapv safe-parse-double toks)]
-    (vec (remove nil? parsed))))
+  (when xs
+    (let [toks (filter (fn [x] (not (str/blank? (str x)))) (tokens-from xs))
+          parsed (mapv safe-parse-double toks)]
+      (vec (remove nil? parsed)))))
 (defn- parse-ints [xs]
   (let [toks (filter (fn [x] (not (str/blank? (str x)))) (tokens-from xs))
         parsed (mapv safe-parse-int toks)]
@@ -200,6 +203,14 @@
   [(parse-double-default (:V0 params) 40.0)
    (parse-double-default (:R0 params) 2.0)
    (parse-double-default (:a0 params) 0.6)])
+
+(defn- ws-w-params-from [params]
+  "Parse complex (imaginary) Woods-Saxon params for elastic. Returns [W0 R_W a_W] or nil when W0 is 0."
+  (let [W0 (parse-double-default (:W0 params) 0.0)
+        R-W (parse-double-default (:R_W params) 2.0)
+        a-W (parse-double-default (:a_W params) 0.6)]
+    (when (and (number? W0) (> W0 0.0))
+      [W0 R-W a-W])))
 
 (def ^:private default-energies (vec (range 5 31)))
 (def ^:private default-L-values [0 1 2 3 4 5])
@@ -259,18 +270,27 @@
 (defn- handle-api-elastic [req]
   (try
     (let [p (params req)
-          [energies L-values] (ensure-energies-L (parse-doubles (:energies p)) (parse-ints (:L_values p)))
+          ;; Prefer query string over body so the URL (built from current form) always wins
+          energies-raw (or (query-param req "energies") (:energies p))
+          L-values-raw (or (query-param req "L_values") (:L_values p))
+          [energies L-values] (ensure-energies-L (parse-doubles energies-raw) (parse-ints L-values-raw))
           ws (ws-params-from p)
+          ws-w (ws-w-params-from p)
           radius (parse-double-default (:radius p) 3.0)
           angles (or (seq (parse-doubles (:angles p))) (range 0.0 181.0 10.0))]
       (let [dsigma-fn (or (resolve 'functions/differential-cross-section) (do (require 'functions) (resolve 'functions/differential-cross-section)))
             L-max (apply max L-values)
+            ;; Elastic dσ/dΩ: currently uses real Woods-Saxon (functions/differential-cross-section).
+            ;; When ws-w is present, we still use real for now; complex optical elastic can be added later.
             elastic-data (for [E energies theta angles]
                            (let [theta-rad (* theta (/ Math/PI 180.0))
                                  dsigma-complex (if dsigma-fn (dsigma-fn E ws theta-rad L-max) 0.0)
                                  dsigma (if (number? dsigma-complex) dsigma-complex (c/mag dsigma-complex))]
                              {:energy E :angle theta :differential_cross_section dsigma}))]
-        (response {:success true :data {:elastic elastic-data :parameters {:energies energies :L_values L-values :ws_params ws :radius radius :angles angles}}})))
+        (response {:success true
+                   :data {:elastic elastic-data
+                          :parameters (merge {:energies energies :L_values L-values :ws_params ws :radius radius :angles angles}
+                                             (when ws-w {:ws_w_params ws-w :complex_optical true}))}})))
     (catch Exception e (response {:success false :error (.getMessage e)}))))
 
 (defn- handle-api-inelastic [req]
@@ -381,9 +401,12 @@
     (GET "/js/dashboard.js" [] (serve-resource "js/dashboard.js"))
     (GET "/api/health" [] (response {:status "ok" :message "DWBA Web Dashboard API"}))
     (GET "/api/parameters" [] (response {:default_parameters {:energies (vec (map double (range 5 31))) :L_values [0 1 2 3 4 5]
-                                                               :V0 40.0 :R0 2.0 :a0 0.6 :radius 3.0 :E_ex 4.44 :lambda 2 :beta 0.25 :reaction_type "p-d"}
+                                                               :V0 40.0 :R0 2.0 :a0 0.6 :radius 3.0
+                                                               :W0 0.0 :R_W 2.0 :a_W 0.6
+                                                               :E_ex 4.44 :lambda 2 :beta 0.25 :reaction_type "p-d"}
                                          :parameter_ranges {:V0 {:min -100.0 :max 100.0 :step 1.0} :R0 {:min 0.5 :max 5.0 :step 0.1}
                                                             :a0 {:min 0.1 :max 2.0 :step 0.1} :radius {:min 1.0 :max 10.0 :step 0.1}
+                                                            :W0 {:min 0.0 :max 50.0 :step 0.5} :R_W {:min 0.5 :max 6.0 :step 0.1} :a_W {:min 0.1 :max 2.0 :step 0.1}
                                                             :E_ex {:min 0.0 :max 20.0 :step 0.1} :lambda {:min 1 :max 5 :step 1} :beta {:min 0.0 :max 1.0 :step 0.01}}}))
     (GET "/api/transfer-default" [req] (handle-transfer-default req))
     (OPTIONS "/api/health" [] (response nil))

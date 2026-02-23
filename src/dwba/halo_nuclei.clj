@@ -5,7 +5,8 @@
    - Extended asymptotic matching for large-radius wavefunctions
    - Coulomb interactions for charged halo nuclei
    - Bound state calculations with Riccati-Hankel initialization
-   - Asymptotic Normalization Coefficient (ANC) extraction
+   - Asymptotic Normalization Coefficient (ANC) extraction from model wavefunctions
+   - Support for using experimental ANC when available (preferred over model extraction)
    - Low-energy scattering calculations
    
    References:
@@ -361,16 +362,22 @@
       (* power-term exp-term))))
 
 (defn extract-anc
-  "Extract Asymptotic Normalization Coefficient from bound state wavefunction.
+  "Extract Asymptotic Normalization Coefficient from a MODEL bound state wavefunction.
    
-   The ANC C is extracted from the asymptotic form:
+   The ANC C is extracted by fitting the asymptotic form:
    u_l(r) ~ C W_{-η, l+1/2}(2κr) as r → ∞
-   
    For neutral systems with l=0: u(r) ~ C e^(-κr)
    
-   Note: The wavefunction should be normalized (∫|u(r)|² dr = 1) for
-   comparison with experimental ANC values. The Numerov solution may
-   have an arbitrary normalization depending on initial conditions.
+   IMPORTANT: This uses the wavefunction from a phenomenological potential (e.g.
+   Woods-Saxon), not from a structure code (shell model, ab initio). For
+   comparison with experiment or for transfer cross sections, prefer using
+   ANCs determined from experimental data (e.g. (d,p) analysis) when available.
+   Pass that value directly to downstream code (e.g. anc-normalized-overlap)
+   rather than relying on extraction from this model.
+   
+   The wavefunction should be normalized (∫|u(r)|² dr = 1) for meaningful
+   comparison with experimental ANC values. The Numerov solution may have an
+   arbitrary normalization depending on initial conditions.
    
    Parameters:
    - u-wave: Vector of wavefunction values (may be unnormalized)
@@ -531,6 +538,26 @@
               un+1 (/ numerator denominator)]
           (recur (inc n) (conj results un+1)))))))
 
+(defn bound-state-anc
+  "Return ANC for a bound state: use experimental (or user) value when provided,
+   otherwise extract from the model wavefunction.
+   
+   Prefer passing :experimental-anc when available (e.g. from (d,p) or other
+   reaction analyses), since the bound state here is from a phenomenological
+   potential, not a structure code.
+   
+   Parameters:
+   - u-wave: Bound state wavefunction (vector)
+   - r-values: Radii (vector)
+   - E-b, mu, Z1, Z2, l, r-match: As for extract-anc
+   - Optional :experimental-anc: ANC in fm^(-1/2) from experiment/literature
+   
+   Returns: ANC value (either experimental-anc or extracted from u-wave)."
+  [u-wave r-values E-b mu Z1 Z2 l r-match & {:keys [experimental-anc]}]
+  (if (and (number? experimental-anc) (pos? experimental-anc))
+    experimental-anc
+    (extract-anc u-wave r-values E-b mu Z1 Z2 l r-match)))
+
 ;; ============================================================================
 ;; Example Usage Functions
 ;; ============================================================================
@@ -540,12 +567,16 @@
    
    Properties: E_b = 504 keV, l = 0, S_{1/2} state
    
-   Note: The potential parameters [V0 R a] are approximate and may need
-   adjustment to exactly reproduce the experimental binding energy and ANC.
-   The ANC is very sensitive to the potential shape.
+   Optional: Pass :experimental-anc (fm^(-1/2)) to use an ANC from experiment
+   or literature instead of extracting from the model wavefunction. Prefer
+   experimental ANC when available (e.g. C_{1s1/2} ≈ 0.78 fm^(-1/2) from (d,p)).
    
-   Returns: Map with wavefunction, ANC, and matching radius"
-  []
+   Note: The potential parameters [V0 R a] are approximate. The ANC extracted
+   from the model is sensitive to the potential; for physics use, supply
+   :experimental-anc when you have it.
+   
+   Returns: Map with :wavefunction, :radii, :anc, :matching-radius, :binding-energy"
+  [& {:keys [experimental-anc]}]
   (let [E-b 0.504 ; MeV
         l 0
         V-params [62.0 2.7 0.6] ; [V0 R a] - may need adjustment
@@ -553,20 +584,17 @@
         h 0.01 ; fm
         r-max 50.0 ; fm
         
-        ;; Calculate adaptive matching radius
         R (second V-params)
         r-match (adaptive-matching-radius R E-b mu)
         
-        ;; Solve bound state
         u-raw (solve-bound-state-numerov E-b l V-params mu h r-max)
-        ;; Normalize wavefunction
         u (normalize-bound-state u-raw h)
         r-values (mapv #(* % h) (range (count u)))
         
-        ;; Extract ANC from normalized wavefunction
-        ;; Note: Potential parameters may need adjustment to reproduce experimental binding energy
-        ;; The ANC is sensitive to the wavefunction shape, which depends on the potential
-        anc (extract-anc u r-values E-b mu 0 0 l r-match)]
+        ;; Use experimental ANC if provided; otherwise extract from model (for illustration only)
+        anc (if (and (number? experimental-anc) (pos? experimental-anc))
+              experimental-anc
+              (extract-anc u r-values E-b mu 0 0 l r-match))]
     
     {:wavefunction u
      :radii r-values
@@ -579,12 +607,15 @@
    
    Properties: E_b = 137 keV, l = 2, p-wave proton halo
    
-   Note: The potential parameters [V0 R a] are approximate and may need
-   adjustment to exactly reproduce the experimental binding energy and ANC.
-   For ⁸B, Coulomb effects should also be included (Z1=4, Z2=1).
+   Optional: Pass :experimental-anc (fm^(-1/2)) to use an ANC from experiment
+   or literature instead of extracting from the model. Prefer experimental
+   ANC when available.
    
-   Returns: Map with wavefunction, ANC, and matching radius"
-  []
+   Note: For ⁸B, Coulomb is included (Z1=4, Z2=1). Potential parameters are
+   approximate; for physics use supply :experimental-anc when you have it.
+   
+   Returns: Map with :wavefunction, :radii, :anc, :matching-radius, :binding-energy"
+  [& {:keys [experimental-anc]}]
   (let [E-b 0.137 ; MeV
         l 2
         V-params [50.0 2.0 0.6] ; [V0 R a] - may need adjustment
@@ -596,12 +627,12 @@
         r-match (adaptive-matching-radius R E-b mu)
         
         u-raw (solve-bound-state-numerov E-b l V-params mu h r-max)
-        ;; Normalize wavefunction
         u (normalize-bound-state u-raw h)
         r-values (mapv #(* % h) (range (count u)))
         
-        ;; For ⁸B, Z1=4 (⁷Be), Z2=1 (proton)
-        anc (extract-anc u r-values E-b mu 4 1 l r-match)]
+        anc (if (and (number? experimental-anc) (pos? experimental-anc))
+              experimental-anc
+              (extract-anc u r-values E-b mu 4 1 l r-match))]
     
     {:wavefunction u
      :radii r-values

@@ -112,7 +112,11 @@
    :E_ex (get-float "E_ex")
    :lambda (get-int "lambda")
    :beta (get-float "beta")
-   :reaction_type (get-value "reaction_type")})
+   :reaction_type (get-value "reaction_type")
+   ;; Complex Woods-Saxon for elastic (optical potential)
+   :W0 (or (get-float "elastic_W0") 0)
+   :R_W (or (get-float "elastic_RW") 2.0)
+   :a_W (or (get-float "elastic_aW") 0.6)})
 
 ;; Show status message
 (defn show-status [message type]

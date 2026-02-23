@@ -703,6 +703,7 @@
      - :s - Spin (default: 0.5 for nucleons, 1 for deuterons)
      - :j - Total angular momentum (default: L + s)
      - :mass-factor - Mass factor (2μ/ħ²), defaults to functions/mass-factor
+     - :global-set - Global potential (e.g. :ch89 for Chapel Hill 89 for :p, :n)
    
    Returns: Vector of distorted wave values χ_i(r) at each radial point
    
@@ -710,15 +711,14 @@
    ;; Simple real potential (backward compatible)
    (distorted-wave-entrance 10.0 0 [50.0 2.0 0.6] 0.01 20.0)
    
-   ;; Full optical potential
+   ;; Full optical potential with Chapel Hill 89
    (distorted-wave-entrance 10.0 0 nil 0.01 20.0
-                            :projectile-type :d
-                            :target-A 11
-                            :target-Z 3
-                            :E-lab 14.2
-                            :s 1
-                            :j 1)"
-  [E-i L-i V-params h r-max & {:keys [optical-potential-fn projectile-type target-A target-Z E-lab s j mass-factor]
+                            :projectile-type :p
+                            :target-A 16
+                            :target-Z 8
+                            :E-lab 20.0
+                            :global-set :ch89)"
+  [E-i L-i V-params h r-max & {:keys [optical-potential-fn projectile-type target-A target-Z E-lab s j mass-factor global-set]
                                :or {s 0.5}}]
   (cond
     ;; Use full optical potential if provided
@@ -727,11 +727,14 @@
           mf (or mass-factor functions/mass-factor)]
       (transfer/distorted-wave-optical E-i L-i s j-val optical-potential-fn r-max h mf))
     
-    ;; Use optical potential from parameters
+    ;; Use optical potential from parameters (or global set e.g. CH89)
     (and projectile-type target-A target-Z E-lab)
     (let [j-val (or j (+ L-i s))
           mf (or mass-factor functions/mass-factor)
-          U-fn (fn [r] (transfer/optical-potential-entrance-channel r projectile-type target-A target-Z E-lab L-i s j-val))]
+          kw-opts (when global-set [:global-set global-set])
+          U-fn (fn [r] (apply transfer/optical-potential-entrance-channel
+                             r projectile-type target-A target-Z E-lab L-i s j-val
+                             (or kw-opts [])))]
       (transfer/distorted-wave-optical E-i L-i s j-val U-fn r-max h mf))
     
     ;; Fall back to simple real potential (backward compatible)
@@ -767,6 +770,7 @@
      - :s - Spin (default: 0.5 for nucleons, 1 for deuterons)
      - :j - Total angular momentum (default: L + s)
      - :mass-factor - Mass factor (2μ/ħ²), defaults to functions/mass-factor
+     - :global-set - Global potential (e.g. :ch89 for Chapel Hill 89 for :p, :n)
    
    Returns: Vector of distorted wave values χ_f(r) at each radial point
    
@@ -774,15 +778,14 @@
    ;; Simple real potential (backward compatible)
    (distorted-wave-exit 10.0 4.44 2 [50.0 2.0 0.6] 0.01 20.0)
    
-   ;; Full optical potential
+   ;; Full optical potential with CH89
    (distorted-wave-exit 10.0 4.44 2 nil 0.01 20.0
-                        :outgoing-type :d
-                        :residual-A 11
-                        :residual-Z 3
-                        :E-lab 9.91
-                        :s 1
-                        :j 2)"
-  [E-i E-ex L-f V-params h r-max & {:keys [optical-potential-fn outgoing-type residual-A residual-Z E-lab s j mass-factor]
+                        :outgoing-type :p
+                        :residual-A 17
+                        :residual-Z 8
+                        :E-lab 8.0
+                        :global-set :ch89)"
+  [E-i E-ex L-f V-params h r-max & {:keys [optical-potential-fn outgoing-type residual-A residual-Z E-lab s j mass-factor global-set]
                                     :or {s 0.5}}]
   (let [E-f (- E-i E-ex)]
     (cond
@@ -792,11 +795,14 @@
             mf (or mass-factor functions/mass-factor)]
         (transfer/distorted-wave-optical E-f L-f s j-val optical-potential-fn r-max h mf))
       
-      ;; Use optical potential from parameters
+      ;; Use optical potential from parameters (or global set e.g. CH89)
       (and outgoing-type residual-A residual-Z E-lab)
       (let [j-val (or j (+ L-f s))
             mf (or mass-factor functions/mass-factor)
-            U-fn (fn [r] (transfer/optical-potential-exit-channel r outgoing-type residual-A residual-Z E-lab L-f s j-val))]
+            kw-opts (when global-set [:global-set global-set])
+            U-fn (fn [r] (apply transfer/optical-potential-exit-channel
+                               r outgoing-type residual-A residual-Z E-lab L-f s j-val
+                               (or kw-opts [])))]
         (transfer/distorted-wave-optical E-f L-f s j-val U-fn r-max h mf))
       
       ;; Fall back to simple real potential (backward compatible)

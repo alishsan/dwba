@@ -20,14 +20,16 @@
 (println "   Properties: E_b = 504 keV, l = 0, S_{1/2} state")
 (println "   Core: ¹⁰Be, Halo: 1 neutron\n")
 
+;; Use model-extracted ANC (no experimental ANC passed).
+;; To use experimental ANC instead: (halo/example-11be :experimental-anc 0.78)
 (let [result (halo/example-11be)
       anc (:anc result)
       r-match (:matching-radius result)
       E-b (:binding-energy result)]
   (println (format "   Binding Energy: %.3f MeV" E-b))
   (println (format "   Adaptive Matching Radius: %.2f fm" r-match))
-  (println (format "   Extracted ANC: %.4f fm^(-1/2)" anc))
-  (println (format "   Expected ANC: ~0.78 fm^(-1/2) (experimental)"))
+  (println (format "   ANC: %.4f fm^(-1/2)" anc))
+  (println (format "   (Use (halo/example-11be :experimental-anc 0.78) to prefer experimental value)"))
   (println ""))
 
 ;; ============================================================================
@@ -37,14 +39,15 @@
 (println "   Properties: E_b = 137 keV, l = 2, p-wave proton halo")
 (println "   Core: ⁷Be, Halo: 1 proton\n")
 
+;; To use experimental ANC: (halo/example-8b :experimental-anc 0.14)
 (let [result (halo/example-8b)
       anc (:anc result)
       r-match (:matching-radius result)
       E-b (:binding-energy result)]
   (println (format "   Binding Energy: %.3f MeV" E-b))
   (println (format "   Adaptive Matching Radius: %.2f fm" r-match))
-  (println (format "   Extracted ANC: %.4f fm^(-1/2)" anc))
-  (println (format "   Expected ANC: ~0.14 fm^(-1/2) (experimental)"))
+  (println (format "   ANC: %.4f fm^(-1/2)" anc))
+  (println (format "   (Use :experimental-anc 0.14 when available from experiment)"))
   (println ""))
 
 ;; ============================================================================

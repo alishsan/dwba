@@ -781,21 +781,15 @@
 ;; ============================================================================
 
 (defn calculate-anc
-  "Calculate Asymptotic Normalization Coefficient (ANC) for a bound state.
+  "Calculate Asymptotic Normalization Coefficient (ANC) from a MODEL bound state wavefunction.
    
-   The ANC is the coefficient in the asymptotic form of the bound state wavefunction:
+   The ANC C is the coefficient in the asymptotic form:
    u(r) → C · e^(-κr) / r^l  (for large r)
    
-   where:
-   - C is the ANC
-   - κ = sqrt(2μ|E|)/ħ is the decay constant
-   - l is the orbital angular momentum
-   
-   The ANC is extracted by fitting the asymptotic tail of the wavefunction.
-   It's useful for:
-   1. Normalizing bound states consistently
-   2. Transfer reaction calculations (often used as D₀ · ANC)
-   3. Connecting to experimental measurements
+   This fits the tail of the wavefunction produced by the potential used in
+   solve-bound-state (e.g. Woods-Saxon). Prefer using ANCs from experimental
+   data (e.g. (d,p) analysis) when available; pass those directly to
+   anc-normalized-overlap or other callers instead of calling this.
    
    Parameters:
    - u: Bound state wavefunction (vector)
@@ -887,27 +881,26 @@
 (defn anc-normalized-overlap
   "Calculate overlap integral normalized by ANC product.
    
-   For transfer reactions, the overlap integral is often normalized using ANCs:
    O_ANC = ∫ φ*_f(r) φ_i(r) r² dr / (C_f · C_i)
    
-   where C_i and C_f are the ANCs of the initial and final bound states.
-   
-   This normalization is useful because:
-   1. ANCs are often measured experimentally
-   2. They provide a consistent normalization scheme
-   3. The product D₀ · ANC is commonly used in transfer reactions
+   Prefer passing ANCs from experiment or literature (e.g. from (d,p) or
+   transfer analyses) when available. If not, you can use calculate-anc
+   from model wavefunctions, but that is less reliable than structure
+   or experimental ANCs.
    
    Parameters:
    - phi-i: Initial bound state wavefunction
    - phi-f: Final bound state wavefunction
-   - ANC-i: ANC of initial state
-   - ANC-f: ANC of final state
+   - ANC-i: ANC of initial state (e.g. from experiment when available)
+   - ANC-f: ANC of final state (e.g. from experiment when available)
    - r-max: Maximum radius (fm)
    - h: Step size (fm)
    
    Returns: Normalized overlap O_ANC
    
-   Example:
+   Example (using experimental ANCs when available):
+   (anc-normalized-overlap phi-i phi-f 0.78 0.14 r-max h)
+   Example (fallback to model extraction):
    (let [ANC-i (calculate-anc phi-i E-i l-i mass-factor h 5.0 15.0)
          ANC-f (calculate-anc phi-f E-f l-f mass-factor h 5.0 15.0)]
      (anc-normalized-overlap phi-i phi-f ANC-i ANC-f r-max h))"
@@ -2134,36 +2127,43 @@
   "Calculate energy-dependent optical potential.
    
    Optical potential parameters often depend on energy. This function
-   implements common energy-dependent parameterizations.
+   implements common energy-dependent parameterizations. When :global-set
+   is provided (e.g. :ch89 for Chapel Hill 89), uses that global potential
+   instead of the built-in generic one.
    
    Parameters:
    - r: Radial distance (fm)
-   - projectile: Projectile type
+   - projectile: Projectile type (:p, :n, :d, :alpha)
    - target-A: Target mass number
    - E-lab: Lab energy (MeV)
    - l: Orbital angular momentum
    - s: Spin
    - j: Total angular momentum
-   - Z1, Z2: Charges (optional)
+   - Optional: :Z1, :Z2 charges, :R-C Coulomb radius, :global-set (e.g. :ch89)
    
    Returns: Complex potential U(r) in MeV
    
    Example:
-   (optical-potential-energy-dependent 2.0 :p 16 10.0 1 0.5 1.5 1 8)"
-  [r projectile target-A E-lab l s j & {:keys [Z1 Z2 R-C]}]
-  (let [params (optical-potential-parameters projectile target-A E-lab)
-        V-params (:V-params params)
-        W-params (:W-params params)
-        V-so (:V-so params)
-        R-so (:R-so params)
-        a-so (:a-so params)]
-    (optical-potential-woods-saxon r V-params W-params V-so R-so a-so l s j Z1 Z2 R-C)))
+   (optical-potential-energy-dependent 2.0 :p 16 10.0 1 0.5 1.5 :Z1 1 :Z2 8 :global-set :ch89)"
+  [r projectile target-A E-lab l s j & {:keys [Z1 Z2 R-C global-set]}]
+  (if (and (#{:ch89} global-set) (#{:p :n} projectile))
+    (do (require 'dwba.global-potentials)
+        ((resolve 'dwba.global-potentials/optical-potential-ch89)
+         r projectile target-A (long (or Z2 0)) E-lab l s j))
+    (let [params (optical-potential-parameters projectile target-A E-lab)
+          V-params (:V-params params)
+          W-params (:W-params params)
+          V-so (:V-so params)
+          R-so (:R-so params)
+          a-so (:a-so params)]
+      (optical-potential-woods-saxon r V-params W-params V-so R-so a-so l s j Z1 Z2 R-C))))
 
 (defn optical-potential-entrance-channel
   "Calculate optical potential for entrance channel of transfer reaction.
    
    This is a convenience function that sets up the optical potential
-   for the entrance channel (projectile + target).
+   for the entrance channel (projectile + target). Pass :global-set :ch89
+   to use Chapel Hill 89 for nucleons (:p, :n).
    
    Parameters:
    - r: Radial distance (fm)
@@ -2174,28 +2174,31 @@
    - l: Orbital angular momentum
    - s: Spin
    - j: Total angular momentum
+   - Optional: :global-set (e.g. :ch89 for Chapel Hill 89)
    
    Returns: Complex potential U(r) in MeV
    
    Example:
-   (optical-potential-entrance-channel 2.0 :d 16 8 10.0 1 0.5 1.5)"
-  [r projectile-type target-A target-Z E-lab l s j]
+   (optical-potential-entrance-channel 2.0 :p 16 8 20.0 1 0.5 1.5 :global-set :ch89)"
+  [r projectile-type target-A target-Z E-lab l s j & {:keys [global-set]}]
   (let [projectile-Z (case projectile-type
                       :p 1
                       :n 0
                       :d 1
                       :alpha 2
                       0)]
-    (optical-potential-energy-dependent r projectile-type target-A E-lab l s j
-                                      :Z1 projectile-Z
-                                      :Z2 target-Z
-                                      :R-C (* 1.25 (Math/pow target-A (/ 1.0 3.0))))))
+    (apply optical-potential-energy-dependent
+           r projectile-type target-A E-lab l s j
+           (concat [:Z1 projectile-Z
+                    :Z2 target-Z
+                    :R-C (* 1.25 (Math/pow target-A (/ 1.0 3.0)))]
+                   (when global-set [:global-set global-set])))))
 
 (defn optical-potential-exit-channel
   "Calculate optical potential for exit channel of transfer reaction.
    
-   This is a convenience function that sets up the optical potential
-   for the exit channel (outgoing particle + residual nucleus).
+   Sets up the optical potential for the exit channel. Pass :global-set :ch89
+   to use Chapel Hill 89 for nucleons (:p, :n).
    
    Parameters:
    - r: Radial distance (fm)
@@ -2206,22 +2209,22 @@
    - l: Orbital angular momentum
    - s: Spin
    - j: Total angular momentum
+   - Optional: :global-set (e.g. :ch89)
    
-   Returns: Complex potential U(r) in MeV
-   
-   Example:
-   (optical-potential-exit-channel 2.0 :p 17 8 8.0 1 0.5 1.5)"
-  [r outgoing-type residual-A residual-Z E-lab l s j]
+   Returns: Complex potential U(r) in MeV"
+  [r outgoing-type residual-A residual-Z E-lab l s j & {:keys [global-set]}]
   (let [outgoing-Z (case outgoing-type
                     :p 1
                     :n 0
                     :d 1
                     :alpha 2
                     0)]
-    (optical-potential-energy-dependent r outgoing-type residual-A E-lab l s j
-                                      :Z1 outgoing-Z
-                                      :Z2 residual-Z
-                                      :R-C (* 1.25 (Math/pow residual-A (/ 1.0 3.0))))))
+    (apply optical-potential-energy-dependent
+           r outgoing-type residual-A E-lab l s j
+           (concat [:Z1 outgoing-Z
+                    :Z2 residual-Z
+                    :R-C (* 1.25 (Math/pow residual-A (/ 1.0 3.0)))]
+                   (when global-set [:global-set global-set])))))
 
 (defn f-r-numerov-complex
   "Calculate f(r) for Numerov method with complex optical potential.

@@ -179,8 +179,8 @@ class DWBADashboard {
         document.getElementById('R0').value = params.R0;
         document.getElementById('a0').value = params.a0;
         document.getElementById('radius').value = params.radius;
-        document.getElementById('energy-range').value = params.energies.join(',');
-        document.getElementById('L-values').value = params.L_values.join(',');
+        document.getElementById('energy-range').value = Array.isArray(params.energies) ? params.energies.join(',') : (params.energies ?? '');
+        document.getElementById('L-values').value = Array.isArray(params.L_values) ? params.L_values.join(',') : (params.L_values ?? '');
         
         if (params.E_ex !== undefined) document.getElementById('E_ex').value = params.E_ex;
         if (params.lambdas !== undefined) document.getElementById('lambda').value = Array.isArray(params.lambdas) ? params.lambdas.join(',') : String(params.lambdas);
@@ -221,8 +221,9 @@ class DWBADashboard {
             R0: num('R0', 2),
             a0: num('a0', 0.6),
             radius: num('radius', 3),
-            energies,
-            L_values,
+            // Send energies and L_values as comma-separated strings so backend always gets current values
+            energies: Array.isArray(energies) ? energies.join(',') : String(energies),
+            L_values: Array.isArray(L_values) ? L_values.join(',') : String(L_values),
             E_ex: num('E_ex', 4.44),
             lambda: int('lambda', 2),
             lambdas: (document.getElementById('lambda') || {}).value || '2',  // e.g. "2" or "2,3,4" for multiple multipoles
@@ -230,7 +231,11 @@ class DWBADashboard {
             reaction_type: (document.getElementById('reaction_type') || {}).value || 'p-d',
             target: (document.getElementById('transfer_target') || {}).value || '16O',
             projectile: (document.getElementById('inelastic_projectile') || {}).value || 'p',
-            inelastic_target: (document.getElementById('inelastic_target') || {}).value || '12C'
+            inelastic_target: (document.getElementById('inelastic_target') || {}).value || '12C',
+            // Complex Woods-Saxon for elastic (optical potential)
+            W0: num('elastic_W0', 0),
+            R_W: num('elastic_RW', 2.0),
+            a_W: num('elastic_aW', 0.6)
         };
     }
 
@@ -253,7 +258,9 @@ class DWBADashboard {
 
     async _runCoreCalculation(btnId) {
         const params = this.getParameters();
-        if (params.energies.length === 0 || params.L_values.length === 0) {
+        const energiesStr = String(params.energies ?? '').trim();
+        const LValuesStr = String(params.L_values ?? '').trim();
+        if (!energiesStr || !LValuesStr) {
             this.showStatus('Please provide valid energy range and angular momenta', 'error');
             return;
         }
@@ -293,7 +300,9 @@ class DWBADashboard {
 
     async _runTabCalculation(btnId, path, dataKey) {
         const params = this.getParameters();
-        if (params.energies.length === 0 || params.L_values.length === 0) {
+        const energiesStr = String(params.energies ?? '').trim();
+        const LValuesStr = String(params.L_values ?? '').trim();
+        if (!energiesStr || !LValuesStr) {
             this.showStatus('Please provide valid energy range and angular momenta', 'error');
             return;
         }
@@ -330,7 +339,38 @@ class DWBADashboard {
     async calculatePotentials() { await this._runCoreCalculation('calculate-potential-btn'); }
     async calculateCrossSections() { await this._runCoreCalculation('calculate-cross-section-btn'); }
     async calculateDashboard() { await this._runCoreCalculation('calculate-dashboard-btn'); }
-    async calculateElastic() { await this._runTabCalculation('calculate-elastic-btn', '/api/elastic', 'elastic'); }
+    async calculateElastic() {
+        const energyRangeEl = document.getElementById('energy-range');
+        const lValuesEl = document.getElementById('L-values');
+        const energiesStr = (energyRangeEl && energyRangeEl.value || '').trim();
+        const LValuesStr = (lValuesEl && lValuesEl.value || '').trim();
+        if (!energiesStr || !LValuesStr) {
+            this.showStatus('Please provide valid energy range and angular momenta', 'error');
+            return;
+        }
+        // Build request body from current form (energies/L_values from inputs above)
+        const params = this.getParameters();
+        const body = { ...params, energies: energiesStr, L_values: LValuesStr };
+        this._setButtonLoading('calculate-elastic-btn', true);
+        this.showStatus('Calculating...', 'info');
+        const startTime = Date.now();
+        try {
+            const result = await this._post('/api/elastic', body);
+            if (!result.success) throw new Error(result.error || 'Calculation failed');
+            this.currentData = this.currentData || {};
+            const raw = result.data && (result.data.elastic || result.data['elastic']);
+            if (raw) this.currentData.elastic = raw;
+            this.updateAllPlots();
+            const used = result.data && result.data.parameters && result.data.parameters.energies;
+            const n = Array.isArray(used) ? used.length : 0;
+            this.showStatus(`Done in ${Date.now() - startTime}ms${n ? ` (${n} energies)` : ''}`, 'success');
+        } catch (error) {
+            console.error('Elastic calculation error:', error);
+            this.showStatus(`Error: ${error.message}`, 'error');
+        } finally {
+            this._setButtonLoading('calculate-elastic-btn', false);
+        }
+    }
     async calculateInelastic() { await this._runTabCalculation('calculate-inelastic-btn', '/api/inelastic', 'inelastic'); }
     async calculateTransfer() { await this._runTabCalculation('calculate-transfer-btn', '/api/transfer', 'transfer'); }
 
