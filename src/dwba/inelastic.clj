@@ -703,7 +703,7 @@
      - :s - Spin (default: 0.5 for nucleons, 1 for deuterons)
      - :j - Total angular momentum (default: L + s)
      - :mass-factor - Mass factor (2μ/ħ²), defaults to functions/mass-factor
-     - :global-set - Global potential (e.g. :ch89 for Chapel Hill 89 for :p, :n)
+     - :global-set - Global potential (optional, auto-selected: :ch89 for :p/:n, :daehnick80 for :d)
    
    Returns: Vector of distorted wave values χ_i(r) at each radial point
    
@@ -711,13 +711,19 @@
    ;; Simple real potential (backward compatible)
    (distorted-wave-entrance 10.0 0 [50.0 2.0 0.6] 0.01 20.0)
    
-   ;; Full optical potential with Chapel Hill 89
+   ;; Full optical potential - automatically uses CH89 for protons
    (distorted-wave-entrance 10.0 0 nil 0.01 20.0
                             :projectile-type :p
                             :target-A 16
                             :target-Z 8
-                            :E-lab 20.0
-                            :global-set :ch89)"
+                            :E-lab 20.0)
+   
+   ;; Automatically uses Daehnick80 for deuterons
+   (distorted-wave-entrance 10.0 0 nil 0.01 20.0
+                            :projectile-type :d
+                            :target-A 16
+                            :target-Z 8
+                            :E-lab 10.0)"
   [E-i L-i V-params h r-max & {:keys [optical-potential-fn projectile-type target-A target-Z E-lab s j mass-factor global-set]
                                :or {s 0.5}}]
   (cond
@@ -770,7 +776,7 @@
      - :s - Spin (default: 0.5 for nucleons, 1 for deuterons)
      - :j - Total angular momentum (default: L + s)
      - :mass-factor - Mass factor (2μ/ħ²), defaults to functions/mass-factor
-     - :global-set - Global potential (e.g. :ch89 for Chapel Hill 89 for :p, :n)
+     - :global-set - Global potential (optional, auto-selected: :ch89 for :p/:n, :daehnick80 for :d)
    
    Returns: Vector of distorted wave values χ_f(r) at each radial point
    
@@ -778,13 +784,19 @@
    ;; Simple real potential (backward compatible)
    (distorted-wave-exit 10.0 4.44 2 [50.0 2.0 0.6] 0.01 20.0)
    
-   ;; Full optical potential with CH89
+   ;; Full optical potential - automatically uses CH89 for protons
    (distorted-wave-exit 10.0 4.44 2 nil 0.01 20.0
                         :outgoing-type :p
                         :residual-A 17
                         :residual-Z 8
-                        :E-lab 8.0
-                        :global-set :ch89)"
+                        :E-lab 8.0)
+   
+   ;; Automatically uses Daehnick80 for deuterons
+   (distorted-wave-exit 10.0 4.44 2 nil 0.01 20.0
+                        :outgoing-type :d
+                        :residual-A 15
+                        :residual-Z 7
+                        :E-lab 5.0)"
   [E-i E-ex L-f V-params h r-max & {:keys [optical-potential-fn outgoing-type residual-A residual-Z E-lab s j mass-factor global-set]
                                     :or {s 0.5}}]
   (let [E-f (- E-i E-ex)]

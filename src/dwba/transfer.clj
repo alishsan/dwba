@@ -2146,40 +2146,66 @@
    Example:
    (optical-potential-energy-dependent 2.0 :p 16 10.0 1 0.5 1.5 :Z1 1 :Z2 8 :global-set :ch89)"
   [r projectile target-A E-lab l s j & {:keys [Z1 Z2 R-C global-set]}]
-  (if (and (#{:ch89} global-set) (#{:p :n} projectile))
-    (do (require 'dwba.global-potentials)
-        ((resolve 'dwba.global-potentials/optical-potential-ch89)
-         r projectile target-A (long (or Z2 0)) E-lab l s j))
-    (let [params (optical-potential-parameters projectile target-A E-lab)
-          V-params (:V-params params)
-          W-params (:W-params params)
-          V-so (:V-so params)
-          R-so (:R-so params)
-          a-so (:a-so params)]
-      (optical-potential-woods-saxon r V-params W-params V-so R-so a-so l s j Z1 Z2 R-C))))
+  (let [;; Auto-select global potential if not explicitly provided
+        auto-global-set (cond
+                         (and (#{:p :n} projectile) (nil? global-set)) :ch89
+                         (and (= projectile :d) (nil? global-set)) :daehnick80
+                         :else global-set)
+        effective-global-set (or global-set auto-global-set)]
+    (cond
+      ;; Use CH89 for protons and neutrons
+      (and (#{:ch89} effective-global-set) (#{:p :n} projectile))
+      (do (require 'dwba.global-potentials)
+          ((resolve 'dwba.global-potentials/optical-potential-ch89)
+           r projectile target-A (long (or Z2 0)) E-lab l s j))
+      
+      ;; Use Daehnick80 for deuterons
+      (and (#{:daehnick80} effective-global-set) (= projectile :d))
+      (do (require 'dwba.global-potentials)
+          ((resolve 'dwba.global-potentials/optical-potential-daehnick80)
+           r target-A (long (or Z2 0)) E-lab l s j))
+      
+      ;; Fall back to generic parameters
+      :else
+      (let [params (optical-potential-parameters projectile target-A E-lab)
+            V-params (:V-params params)
+            W-params (:W-params params)
+            V-so (:V-so params)
+            R-so (:R-so params)
+            a-so (:a-so params)]
+        (optical-potential-woods-saxon r V-params W-params V-so R-so a-so l s j Z1 Z2 R-C)))))
 
 (defn optical-potential-entrance-channel
   "Calculate optical potential for entrance channel of transfer reaction.
    
    This is a convenience function that sets up the optical potential
-   for the entrance channel (projectile + target). Pass :global-set :ch89
-   to use Chapel Hill 89 for nucleons (:p, :n).
+   for the entrance channel (projectile + target). 
+   
+   Automatically uses:
+   - CH89 (Chapel Hill 89) for protons (:p) and neutrons (:n)
+   - Daehnick 1980 for deuterons (:d)
+   
+   You can override by passing :global-set explicitly.
    
    Parameters:
    - r: Radial distance (fm)
    - projectile-type: Type of projectile (:p, :n, :d, :alpha)
    - target-A: Target mass number
    - target-Z: Target charge number
-   - E-lab: Lab energy (MeV)
+   - E-lab: Lab energy (MeV) or energy per nucleon for deuterons
    - l: Orbital angular momentum
    - s: Spin
    - j: Total angular momentum
-   - Optional: :global-set (e.g. :ch89 for Chapel Hill 89)
+   - Optional: :global-set to override auto-selection (:ch89, :daehnick80, or nil for generic)
    
    Returns: Complex potential U(r) in MeV
    
    Example:
-   (optical-potential-entrance-channel 2.0 :p 16 8 20.0 1 0.5 1.5 :global-set :ch89)"
+   (optical-potential-entrance-channel 2.0 :p 16 8 20.0 1 0.5 1.5)
+   => Automatically uses CH89 for proton
+   
+   (optical-potential-entrance-channel 2.0 :d 16 8 10.0 1 1.0 2.0)
+   => Automatically uses Daehnick80 for deuteron"
   [r projectile-type target-A target-Z E-lab l s j & {:keys [global-set]}]
   (let [projectile-Z (case projectile-type
                       :p 1
@@ -2197,21 +2223,28 @@
 (defn optical-potential-exit-channel
   "Calculate optical potential for exit channel of transfer reaction.
    
-   Sets up the optical potential for the exit channel. Pass :global-set :ch89
-   to use Chapel Hill 89 for nucleons (:p, :n).
+   Sets up the optical potential for the exit channel.
+   
+   Automatically uses:
+   - CH89 (Chapel Hill 89) for protons (:p) and neutrons (:n)
+   - Daehnick 1980 for deuterons (:d)
+   
+   You can override by passing :global-set explicitly.
    
    Parameters:
    - r: Radial distance (fm)
    - outgoing-type: Type of outgoing particle (:p, :n, :d, :alpha)
    - residual-A: Residual nucleus mass number
    - residual-Z: Residual nucleus charge number
-   - E-lab: Lab energy in exit channel (MeV)
+   - E-lab: Lab energy in exit channel (MeV) or energy per nucleon for deuterons
    - l: Orbital angular momentum
    - s: Spin
    - j: Total angular momentum
-   - Optional: :global-set (e.g. :ch89)
+   - Optional: :global-set to override auto-selection (:ch89, :daehnick80, or nil for generic)
    
-   Returns: Complex potential U(r) in MeV"
+   Returns: Complex potential U(r) in MeV
+   
+   Note: For transfer reactions, typically use CH89 for proton channel and Daehnick80 for deuteron channel."
   [r outgoing-type residual-A residual-Z E-lab l s j & {:keys [global-set]}]
   (let [outgoing-Z (case outgoing-type
                     :p 1

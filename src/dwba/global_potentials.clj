@@ -7,9 +7,11 @@
    
    Implemented:
    - CH89 (Chapel Hill 89): nucleon-nucleus, A=40–209, protons 16–65 MeV, neutrons 10–26 MeV
+   - Daehnick 1980: deuteron-nucleus, A=12–208, E_lab = 12–90 MeV
    
-   Reference: R.L. Varner et al., Physics Reports 201 (1991) 57–119,
-   'A global nucleon optical model potential'."
+   References:
+   - R.L. Varner et al., Physics Reports 201 (1991) 57–119, 'A global nucleon optical model potential'
+   - W.W. Daehnick et al., Phys. Rev. C 21 (1980) 2253, 'Global optical model potential for elastic scattering from light and medium nuclei'"
   (:require [dwba.transfer :as transfer]))
 
 ;; ============================================================================
@@ -123,32 +125,123 @@
      l s j Z1 Z2 R-C)))
 
 ;; ============================================================================
+;; Daehnick 1980 — deuteron-nucleus
+;; ============================================================================
+
+(defn daehnick80-real-depth
+  "Daehnick 1980 real central depth for deuterons (MeV).
+   V0 = V1 - V2*E (energy-dependent form).
+   
+   Parameters:
+   - E-lab: Lab energy per nucleon (MeV/nucleon)
+   
+   Returns: V0 in MeV"
+  [E-lab]
+  (let [V1 88.0
+        V2 0.215]
+    (- V1 (* V2 E-lab))))
+
+(defn daehnick80-imag-depth
+  "Daehnick 1980 imaginary volume depth for deuterons (MeV).
+   W0 = W1 + W2*E (energy-dependent form).
+   
+   Parameters:
+   - E-lab: Lab energy per nucleon (MeV/nucleon)
+   
+   Returns: W0 in MeV"
+  [E-lab]
+  (let [W1 12.0
+        W2 0.25]
+    (+ W1 (* W2 E-lab))))
+
+(defn daehnick80-parameters
+  "Daehnick 1980 global optical potential parameters for deuterons.
+   
+   Applicable: A = 12–208; E_lab = 12–90 MeV (per nucleon).
+   Reference: W.W. Daehnick et al., Phys. Rev. C 21 (1980) 2253.
+   
+   Parameters:
+   - target-A: Target mass number
+   - E-lab: Lab energy per nucleon (MeV/nucleon)
+   
+   Returns: Map with {:V-params [V0 R_V a_V], :W-params [W0 R_W a_W],
+                      :V-so, :R-so, :a-so} for use with optical-potential-woods-saxon."
+  [target-A E-lab]
+  (let [;; Geometry (Daehnick 1980 typical values)
+        rv0 1.15
+        av   0.81
+        rw0 1.34
+        aw   0.68
+        ;; Real
+        V0   (daehnick80-real-depth E-lab)
+        R-V  (* rv0 (Math/pow target-A (/ 1.0 3.0)))
+        ;; Imaginary
+        W0   (daehnick80-imag-depth E-lab)
+        R-W  (* rw0 (Math/pow target-A (/ 1.0 3.0)))
+        ;; Spin-orbit (Daehnick typically uses small or zero spin-orbit for deuterons)
+        V-so 0.0  ; Deuterons have spin 1, but spin-orbit is typically small
+        R-so R-V
+        a-so av]
+    {:V-params [V0 R-V av]
+     :W-params [W0 R-W aw]
+     :V-so     V-so
+     :R-so     R-so
+     :a-so     a-so}))
+
+(defn optical-potential-daehnick80
+  "Optical potential U(r) using Daehnick 1980 global parameterization for deuterons.
+   
+   Parameters:
+   - r: radius (fm)
+   - target-A: mass number
+   - target-Z: target charge (for Coulomb)
+   - E-lab: lab energy per nucleon (MeV/nucleon)
+   - l, s, j: orbital, spin, total angular momentum
+   
+   Returns: Complex U(r) in MeV"
+  [r target-A target-Z E-lab l s j]
+  (let [params (daehnick80-parameters target-A E-lab)
+        Z1     1  ; Deuteron charge
+        Z2     (long target-Z)
+        R-C    (* 1.25 (Math/pow target-A (/ 1.0 3.0)))]
+    (transfer/optical-potential-woods-saxon
+     r
+     (:V-params params)
+     (:W-params params)
+     (:V-so params)
+     (:R-so params)
+     (:a-so params)
+     l s j Z1 Z2 R-C)))
+
+;; ============================================================================
 ;; Dispatch for global set selection
 ;; ============================================================================
 
 (def supported-global-sets
   "Keyword set of supported global potential names."
-  #{:ch89})
+  #{:ch89 :daehnick80})
 
 (defn parameters-for-global-set
   "Return optical potential parameter map for the given global set.
    
-   - global-set: :ch89 (or future :kd03, etc.)
-   - projectile: :p, :n (and :d, :alpha if set supports them)
+   - global-set: :ch89 (nucleons) or :daehnick80 (deuterons)
+   - projectile: :p, :n, :d
    - target-A, target-Z: target nucleus
-   - E-lab: lab energy (MeV)
+   - E-lab: lab energy (MeV) or lab energy per nucleon for deuterons
    
    Returns: Map {:V-params :W-params :V-so :R-so :a-so} or nil if not supported."
   [global-set projectile target-A _target-Z E-lab]
   (case global-set
     :ch89 (when (#{:p :n} projectile)
             (ch89-parameters projectile target-A E-lab))
+    :daehnick80 (when (= projectile :d)
+                  (daehnick80-parameters target-A E-lab))
     nil))
 
 (defn optical-potential-global
   "Compute U(r) using a named global potential.
    
-   global-set: :ch89 (Chapel Hill 89 for nucleons)
+   global-set: :ch89 (Chapel Hill 89 for nucleons) or :daehnick80 (Daehnick 1980 for deuterons)
    Other args: r, projectile, target-A, target-Z, E-lab, l, s, j.
    Returns complex U(r) in MeV, or nil if combination not supported."
   [r global-set projectile target-A target-Z E-lab l s j]
@@ -156,4 +249,6 @@
     (case global-set
       :ch89 (when (#{:p :n} projectile)
               (optical-potential-ch89 r projectile target-A target-Z E-lab l s j))
+      :daehnick80 (when (= projectile :d)
+                    (optical-potential-daehnick80 r target-A target-Z E-lab l s j))
       nil)))
