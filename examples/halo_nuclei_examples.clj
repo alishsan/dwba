@@ -8,6 +8,7 @@
 ;; 4. ANC extraction
 ;; 5. Low-energy scattering
 ;; 6. Transfer reactions with global optical potentials (CH89 for protons, Daehnick80 for deuterons)
+;; 7. Numerov start comparison: hybrid (Bessel) vs finite start near zero
 
 (require '[dwba.halo-nuclei :as halo]
          '[dwba.transfer :as transfer]
@@ -24,16 +25,12 @@
 (println "   Properties: E_b = 504 keV, l = 0, S_{1/2} state")
 (println "   Core: ¹⁰Be, Halo: 1 neutron\n")
 
-;; Use model-extracted ANC (no experimental ANC passed).
-;; To use experimental ANC instead: (halo/example-11be :experimental-anc 0.78)
 (let [result (halo/example-11be)
-      anc (:anc result)
       r-match (:matching-radius result)
       E-b (:binding-energy result)]
   (println (format "   Binding Energy: %.3f MeV" E-b))
   (println (format "   Adaptive Matching Radius: %.2f fm" r-match))
-  (println (format "   ANC: %.4f fm^(-1/2)" anc))
-  (println (format "   (Use (halo/example-11be :experimental-anc 0.78) to prefer experimental value)"))
+  (println "   (Comparison to experiment via transfer cross section in Example 7)")
   (println ""))
 
 ;; ============================================================================
@@ -43,15 +40,12 @@
 (println "   Properties: E_b = 137 keV, l = 2, p-wave proton halo")
 (println "   Core: ⁷Be, Halo: 1 proton\n")
 
-;; To use experimental ANC: (halo/example-8b :experimental-anc 0.14)
 (let [result (halo/example-8b)
-      anc (:anc result)
       r-match (:matching-radius result)
       E-b (:binding-energy result)]
   (println (format "   Binding Energy: %.3f MeV" E-b))
   (println (format "   Adaptive Matching Radius: %.2f fm" r-match))
-  (println (format "   ANC: %.4f fm^(-1/2)" anc))
-  (println (format "   (Use :experimental-anc 0.14 when available from experiment)"))
+  (println "   (Comparison to experiment via transfer cross section when available)")
   (println ""))
 
 ;; ============================================================================
@@ -253,7 +247,7 @@
   (println (format "   %6s  %12s  %12s" "θ (deg)" "dσ/dΩ (mb/sr)" "dσ/dΩ (fm²/sr)"))
   (println "   " (apply str (repeat 50 "-")))
   (doseq [cs cross-sections]
-    (println (format "   %6.0f  %12.4e  %12.4e"
+    (println (format "   %6d  %12.4e  %12.4e"
                     (:angle cs)
                     (:dsigma cs)
                     (/ (:dsigma cs) 10.0))))
@@ -261,7 +255,112 @@
   (println (format "   Note: For L=0 transfer, angular distribution is isotropic"))
   (println (format "   Total cross-section (estimated): σ ≈ %.2f mb"
                    (* 4.0 Math/PI dsigma-mb)))
+  ;; Comparison to experimental cross section (reference value in mb/sr)
+  ;; Replace with actual data from experiment when available (e.g. EXFOR, literature).
+  (let [exp-dsigma-mb 0.07 ; Reference: typical order for ¹⁰Be(d,p)¹¹Be at E_d ~ 10 MeV (replace with real data)
+        ratio (if (and (pos? exp-dsigma-mb) (Double/isFinite dsigma-mb))
+                (/ dsigma-mb exp-dsigma-mb)
+                nil)]
+    (println "")
+    (println "   Comparison to experimental cross section:")
+    (println (format "   Calculated dσ/dΩ:  %.4e mb/sr" dsigma-mb))
+    (println (format "   Experimental ref:  %.4e mb/sr (replace with data from experiment)" exp-dsigma-mb))
+    (when ratio
+      (println (format "   Ratio (calc/exp):  %.4f" ratio))))
   (println ""))
+
+;; ============================================================================
+;; Example 8: Numerov Start Comparison via Transfer Cross Section
+;; ============================================================================
+(println "8. Numerov Start Comparison: Hybrid vs Finite Start (via dσ/dΩ vs experiment)")
+(println "   Same ¹⁰Be(d,p)¹¹Be transfer; bound state from hybrid Bessel start vs finite u(h)=h^(l+1).")
+(println "")
+
+(let [;; Get both bound-state wavefunctions (no ANC printing)
+      comparison (halo/example-numerov-start-comparison :print? false)
+      phi-f-hybrid (:wavefunction (:hybrid comparison))
+      phi-f-finite (:wavefunction (:finite comparison))
+      ;; Same transfer setup as Example 7
+      E-lab 10.0
+      Q-value 4.49
+      E-exit (- E-lab Q-value)
+      residual-A 11
+      residual-Z 4
+      L-i 0
+      L-f 0
+      h 0.01
+      r-max 30.0
+      E-bd 2.225
+      mu-d 469.5
+      kappa-d (Math/sqrt (/ (* 2.0 mu-d E-bd) (* halo/hbarc halo/hbarc)))
+      n-steps (int (/ r-max h))
+      phi-i (halo/normalize-bound-state
+             (vec (map (fn [i]
+                         (let [r (* i h)]
+                           (if (zero? r) 0.0 (* r (Math/exp (* (- kappa-d) r))))))
+                       (range n-steps)))
+             h)
+      chi-f (inel/distorted-wave-exit E-lab Q-value L-f nil h r-max
+                                      :outgoing-type :p
+                                      :residual-A residual-A
+                                      :residual-Z residual-Z
+                                      :E-lab E-exit
+                                      :s 0.5)
+      chi-i (inel/distorted-wave-entrance E-lab L-i nil h r-max
+                                          :projectile-type :d
+                                          :target-A 10
+                                          :target-Z 4
+                                          :E-lab E-lab
+                                          :s 1.0)
+      D0 (transfer/zero-range-constant :d-p)
+      mu-i 1869.0
+      mu-f 869.4
+      mass-factor-i (/ (* 2.0 mu-i) (* halo/hbarc halo/hbarc))
+      mass-factor-f (/ (* 2.0 mu-f) (* halo/hbarc halo/hbarc))
+      k-i (Math/sqrt (* mass-factor-i E-lab))
+      k-f (Math/sqrt (* mass-factor-f E-exit))
+      S-factor 1.0
+      ;; Transfer with hybrid-start bound state
+      min-len-h (min (count chi-i) (count chi-f) (count phi-i) (count phi-f-hybrid))
+      T-hybrid (transfer/transfer-amplitude-post
+                (vec (take min-len-h chi-i))
+                (vec (take min-len-h chi-f))
+                (vec (take min-len-h phi-i))
+                (vec (take min-len-h phi-f-hybrid))
+                r-max h :zero-range D0)
+      dsigma-hybrid (transfer/transfer-differential-cross-section
+                     T-hybrid S-factor k-i k-f mass-factor-i mass-factor-f)
+      dsigma-hybrid-mb (* 10.0 dsigma-hybrid)
+      ;; Transfer with finite-start bound state
+      min-len-f (min (count chi-i) (count chi-f) (count phi-i) (count phi-f-finite))
+      T-finite (transfer/transfer-amplitude-post
+                (vec (take min-len-f chi-i))
+                (vec (take min-len-f chi-f))
+                (vec (take min-len-f phi-i))
+                (vec (take min-len-f phi-f-finite))
+                r-max h :zero-range D0)
+      dsigma-finite (transfer/transfer-differential-cross-section
+                     T-finite S-factor k-i k-f mass-factor-i mass-factor-f)
+      dsigma-finite-mb (* 10.0 dsigma-finite)
+      ;; Experimental reference (same as Example 7)
+      exp-dsigma-mb 0.07]
+  (println "   Transfer cross section (L=0 isotropic):")
+  (println (format "   dσ/dΩ (hybrid start):  %.4e mb/sr" dsigma-hybrid-mb))
+  (println (format "   dσ/dΩ (finite start): %.4e mb/sr" dsigma-finite-mb))
+  (println (format "   Experimental ref:     %.4e mb/sr" exp-dsigma-mb))
+  (let [ratio-hf (if (and (pos? dsigma-finite-mb) (Double/isFinite dsigma-finite-mb))
+                   (/ dsigma-hybrid-mb dsigma-finite-mb)
+                   nil)
+        ratio-exp (if (pos? exp-dsigma-mb)
+                    (/ dsigma-hybrid-mb exp-dsigma-mb)
+                    nil)]
+    (when ratio-hf
+      (println (format "   Ratio hybrid/finite:  %.6f (expect ~1.0)" ratio-hf)))
+    (when ratio-exp
+      (println (format "   Ratio calc/exp:       %.4f" ratio-exp)))
+    )
+  )
+(println "")
 
 (println "=== Calculations Complete ===")
 (println "\nNote: These examples demonstrate the key features of the")

@@ -49,6 +49,47 @@
   (print-convergence-table table))
 
 ;; ============================================
+;; 2b. Integration Range Dependence
+;;    (spurious effects may accumulate over larger r_max)
+;; ============================================
+(println "2b. Effect of Integration Range (r_max)")
+(println "=========================================")
+(let [r-boundaries [5.0 10.0 20.0 30.0 40.0]
+      h 0.05
+      e (:e test-params)
+      l (:l test-params)
+      v0 (:v0 test-params)
+      rad (:rad test-params)
+      diff (:diff test-params)
+      results
+      (map (fn [r-max]
+             (let [stats (calculate-stability-data e l v0 rad diff h r-max)
+                   table (phase-shift-convergence-table e l v0 rad diff [h] r-max)
+                   row (first table)]
+               {:r-max r-max
+                :naive-w-drift (:naive-w-drift stats)
+                :bessel-w-drift (:bessel-w-drift stats)
+                :naive-phase-error (:naive-error row)
+                :bessel-phase-error (:bessel-error row)
+                :ratio-w (if (and (pos? (:bessel-w-drift stats))
+                                  (Double/isFinite (:naive-w-drift stats)))
+                           (/ (:naive-w-drift stats) (:bessel-w-drift stats))
+                           Double/NaN))}))
+           r-boundaries)]
+  (println (format "Fixed h = %.2f fm, E = %.1f MeV, l = %d" h e l))
+  (println "")
+  (println (format "%-10s %-18s %-18s %-12s %-18s %-18s"
+                   "r_max (fm)" "Naive W drift" "Bessel W drift" "Naive/Bessel"
+                   "Naive δ err" "Bessel δ err"))
+  (println (apply str (repeat 100 "-")))
+  (doseq [r results]
+    (println (format "%-10.1f %-18.6e %-18.6e %-12.2f %-18.6e %-18.6e"
+                     (:r-max r) (:naive-w-drift r) (:bessel-w-drift r)
+                     (if (Double/isNaN (:ratio-w r)) 0.0 (:ratio-w r))
+                     (:naive-phase-error r) (:bessel-phase-error r)))))
+(println "")
+
+;; ============================================
 ;; 3. Energy Dependence Analysis
 ;; ============================================
 (println "3. Energy Dependence Analysis")

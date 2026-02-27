@@ -157,6 +157,49 @@
               un+1 (/ numerator denominator)]
           (recur (inc n) (conj results un+1)))))))
 
+(defn solve-bound-state-numerov-finite-start
+  "Solve bound state using Numerov with a finite start near zero (no Bessel/hybrid).
+   
+   Uses u(0)=0 and u(h)=h^(l+1), i.e. the leading power-law behavior at the origin.
+   Compare with solve-bound-state-numerov which uses Riccati-Hankel (Bessel) start.
+   
+   Parameters: same as solve-bound-state-numerov.
+   Returns: Vector of wavefunction values u(r)."
+  [E-b l [V0 R a] mu h r-max]
+  (let [mass-factor (/ (* 2.0 mu) (* hbarc hbarc))
+        kappa (Math/sqrt (/ (* 2.0 mu E-b) (* hbarc hbarc)))
+        E (- E-b)
+        steps (int (/ r-max h))
+        u0 0.0
+        u1 (m/pow h (inc l))  ; finite start: u(h) = h^(l+1)
+        ws-pot (fn [r]
+                 (/ (- V0) (+ 1.0 (Math/exp (/ (- r R) a)))))
+        f-r (fn [r]
+              (if (zero? r)
+                0.0
+                (let [v-tot (ws-pot r)
+                      centrifugal (/ (* l (inc l)) (* r r))
+                      v-eff (+ v-tot centrifugal)]
+                  (* mass-factor (- v-eff E)))))
+        fs (mapv (fn [r] (f-r r))
+                 (take (+ steps 2) (iterate #(+ % h) 0.0)))
+        h2-12 (/ (* h h) 12.0)]
+    (loop [n 1
+           results [u0 u1]]
+      (if (>= n (dec steps))
+        results
+        (let [un (get results n)
+              un-1 (get results (dec n))
+              fn-1 (get fs (dec n))
+              fn (get fs n)
+              fn+1 (get fs (inc n))
+              numerator (+ (* 2.0 un)
+                          (- un-1)
+                          (* h2-12 (+ (* 10.0 fn un) (* fn-1 un-1))))
+              denominator (- 1.0 (* h2-12 fn+1))
+              un+1 (/ numerator denominator)]
+          (recur (inc n) (conj results un+1)))))))
+
 ;; ============================================================================
 ;; 3. Coulomb Interactions
 ;; ============================================================================
@@ -467,7 +510,8 @@
                               nil)))
               valid-ancs (filter some? anc-values)]
           (if (seq valid-ancs)
-            (/ (reduce + valid-ancs) (count valid-ancs))
+            ;; ANC is a positive magnitude; simplified W may have sign opposite to u
+            (Math/abs (/ (reduce + valid-ancs) (count valid-ancs)))
             0.0))))))
 
 ;; ============================================================================
@@ -638,6 +682,80 @@
      :radii r-values
      :anc anc
      :matching-radius r-match
+     :binding-energy E-b}))
+
+(defn example-numerov-start-comparison
+  "Compare bound-state Numerov with hybrid (Bessel) start vs finite start near zero.
+   
+   Uses the ¹¹Be halo example: same potential and grid, two initializations:
+   - Hybrid: u(0)=0, u(h)=bessel-start-bound-state (Riccati-Hankel)
+   - Finite: u(0)=0, u(h)=h^(l+1)
+   
+   Both solutions are normalized, then ANC is extracted and wavefunctions
+   compared (max relative difference, overlap).
+   
+   Optional :print? true prints a short summary to stdout.
+   
+   Returns: Map with :hybrid (wave, anc), :finite (wave, anc), :anc-ratio,
+   :max-rel-diff-u, :overlap."
+  [& {:keys [print?]}]
+  (let [E-b 0.504
+        l 0
+        V-params [62.0 2.7 0.6]
+        mu 869.4
+        h 0.01
+        r-max 50.0
+        R (second V-params)
+        r-match (adaptive-matching-radius R E-b mu)
+        u-hybrid-raw (solve-bound-state-numerov E-b l V-params mu h r-max)
+        u-hybrid (normalize-bound-state u-hybrid-raw h)
+        r-values (mapv #(* % h) (range (count u-hybrid)))
+        anc-hybrid (extract-anc u-hybrid r-values E-b mu 0 0 l r-match)
+        ;; Finite start
+        u-finite-raw (solve-bound-state-numerov-finite-start E-b l V-params mu h r-max)
+        u-finite (normalize-bound-state u-finite-raw h)
+        anc-finite (extract-anc u-finite r-values E-b mu 0 0 l r-match)
+        ;; Comparison
+        n (min (count u-hybrid) (count u-finite))
+        max-rel-diff (when (and (> n 0) (every? #(> (Math/abs %) 1e-15) u-hybrid))
+                       (let [diffs (map (fn [i]
+                                          (let [uh (nth u-hybrid i)
+                                                uf (nth u-finite i)]
+                                            (if (and (not (zero? uh)) (Double/isFinite uh))
+                                              (Math/abs (/ (- uf uh) uh))
+                                              0.0)))
+                                        (range n))]
+                         (when (seq diffs) (apply max diffs))))
+        overlap (when (>= n 2)
+                  (let [integrand (mapv #(* (nth u-hybrid %) (nth u-finite %)) (range n))
+                        simpson-sum (loop [i 1 sum 0.0]
+                                      (if (>= i (dec n))
+                                        sum
+                                        (let [coeff (if (odd? i) 4.0 2.0)]
+                                          (recur (inc i) (+ sum (* coeff (get integrand i)))))))
+                        integral (* (/ h 3.0)
+                                    (+ (first integrand) (last integrand) simpson-sum))]
+                    integral))
+        anc-ratio (if (and (pos? anc-finite) (Double/isFinite anc-finite))
+                    (/ anc-hybrid anc-finite)
+                    nil)]
+    (when print?
+      (println "=== Numerov start comparison (¹¹Be halo, l=0) ===")
+      (println (format "  Hybrid start ANC:  %.6f fm^(-1/2)" anc-hybrid))
+      (println (format "  Finite start ANC:  %.6f fm^(-1/2)" anc-finite))
+      (when anc-ratio
+        (println (format "  ANC ratio (hybrid/finite): %.6f" anc-ratio)))
+      (when (number? max-rel-diff)
+        (println (format "  Max relative diff |u_finite - u_hybrid|/|u_hybrid|: %.4e" max-rel-diff)))
+      (when (number? overlap)
+        (println (format "  Overlap ∫ u_hybrid u_finite dr: %.6f" overlap)))
+      (println ""))
+    {:hybrid {:wavefunction u-hybrid :anc anc-hybrid}
+     :finite {:wavefunction u-finite :anc anc-finite}
+     :anc-ratio anc-ratio
+     :max-rel-diff-u max-rel-diff
+     :overlap overlap
+     :radii r-values
      :binding-energy E-b}))
 
 (defn example-coulomb-scattering
