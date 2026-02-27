@@ -212,7 +212,7 @@
     (when (and (number? W0) (> W0 0.0))
       [W0 R-W a-W])))
 
-(def ^:private default-energies (vec (range 5 31)))
+(def ^:private default-energies [5.0 10.0 15.0 20.0 25.0])
 (def ^:private default-L-values [0 1 2 3 4 5])
 
 (defn- ensure-energies-L [energies L-values]
@@ -273,7 +273,9 @@
           ;; Prefer query string over body so the URL (built from current form) always wins
           energies-raw (or (query-param req "energies") (:energies p))
           L-values-raw (or (query-param req "L_values") (:L_values p))
-          [energies L-values] (ensure-energies-L (parse-doubles energies-raw) (parse-ints L-values-raw))
+          parsed-energies (parse-doubles energies-raw)
+          parsed-L (parse-ints L-values-raw)
+          [energies L-values] (ensure-energies-L parsed-energies parsed-L)
           ws (ws-params-from p)
           ws-w (ws-w-params-from p)
           radius (parse-double-default (:radius p) 3.0)
@@ -400,7 +402,7 @@
     (GET "/app.js" [] (serve-resource "app.js"))
     (GET "/js/dashboard.js" [] (serve-resource "js/dashboard.js"))
     (GET "/api/health" [] (response {:status "ok" :message "DWBA Web Dashboard API"}))
-    (GET "/api/parameters" [] (response {:default_parameters {:energies (vec (map double (range 5 31))) :L_values [0 1 2 3 4 5]
+    (GET "/api/parameters" [] (response {:default_parameters {:energies [5.0 10.0 15.0 20.0 25.0] :L_values [0 1 2 3 4 5]
                                                                :V0 40.0 :R0 2.0 :a0 0.6 :radius 3.0
                                                                :W0 0.0 :R_W 2.0 :a_W 0.6
                                                                :E_ex 4.44 :lambda 2 :beta 0.25 :reaction_type "p-d"}

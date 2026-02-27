@@ -12,14 +12,16 @@
    :v0 46.23
    :rad 2.0
    :diff 0.5
-   :r-boundary 10.0})
+   ;; Use an even larger matching radius to probe asymptotic behavior
+   :r-boundary 80.0})
 
 ;; ============================================
 ;; 1. Wronskian Stability Table
 ;; ============================================
 (println "1. Wronskian Stability Analysis")
 (println "=================================")
-(let [h-values [0.1 0.05 0.01]
+;; Push to coarser step sizes to look for divergence between starts
+(let [h-values [0.50 0.20 0.10 0.05 0.01]
       results (map (fn [h]
                      (let [stats (calculate-stability-data 
                                     (:e test-params) (:l test-params)
@@ -29,6 +31,8 @@
                         :naive-drift (:naive-w-drift stats)
                         :bessel-drift (:bessel-w-drift stats)}))
                    h-values)]
+  (println (format "Using r_max = %.1f fm" (:r-boundary test-params)))
+  (println "")
   (println (format "%-8s %-20s %-20s" "h (fm)" "Naive Drift" "Bessel Drift"))
   (println (apply str (repeat 60 "-")))
   (doseq [r results]
@@ -41,11 +45,16 @@
 ;; ============================================
 (println "2. Phase Shift Convergence Table")
 (println "==================================")
-(let [h-values [0.1 0.05 0.01]
+;; Use much larger h to see behavior at coarse resolution
+(let [h-values [0.50 0.20 0.10 0.05 0.01]
       table (phase-shift-convergence-table 
               (:e test-params) (:l test-params)
               (:v0 test-params) (:rad test-params) 
               (:diff test-params) h-values (:r-boundary test-params))]
+  (println (format "Range r_max = %.1f fm, step sizes h = %s"
+                   (:r-boundary test-params)
+                   (pr-str h-values)))
+  (println "")
   (print-convergence-table table))
 
 ;; ============================================
@@ -54,7 +63,7 @@
 ;; ============================================
 (println "2b. Effect of Integration Range (r_max)")
 (println "=========================================")
-(let [r-boundaries [5.0 10.0 20.0 30.0 40.0]
+(let [r-boundaries [5.0 10.0 20.0 40.0 80.0 120.0]
       h 0.05
       e (:e test-params)
       l (:l test-params)
@@ -74,7 +83,7 @@
                 :ratio-w (if (and (pos? (:bessel-w-drift stats))
                                   (Double/isFinite (:naive-w-drift stats)))
                            (/ (:naive-w-drift stats) (:bessel-w-drift stats))
-                           Double/NaN))}))
+                           Double/NaN)}))
            r-boundaries)]
   (println (format "Fixed h = %.2f fm, E = %.1f MeV, l = %d" h e l))
   (println "")
@@ -190,7 +199,8 @@
 ;; ============================================
 (println "5. Convergence Rate Analysis")
 (println "==============================")
-(let [h-values [0.1 0.05 0.025 0.01 0.005]
+(let [;; Start from a much coarser step and go down
+      h-values [0.50 0.20 0.10 0.05 0.025 0.01]
       table (phase-shift-convergence-table 
               (:e test-params) (:l test-params)
               (:v0 test-params) (:rad test-params) 
@@ -209,14 +219,25 @@
                           slope (/ (- (* n sum-xy) (* sum-x sum-y))
                                    (- (* n sum-x2) (* sum-x sum-x)))]
                       slope)))]
+  (println (format "Range r_max = %.1f fm, step sizes h = %s"
+                   (:r-boundary test-params)
+                   (pr-str h-values)))
+  (println "")
   (println "Bessel Start Convergence Rate:")
   (let [bessel-errors (map :bessel-error table)
         rate (calc-rate bessel-errors)]
-    (println (format "  Estimated order: %.2f (theoretical: 6.0)" rate)))
+    (println (format "  Estimated order: %.4f (theoretical: 6.0)" rate)))
   (println "Naive Start Convergence Rate:")
   (let [naive-errors (map :naive-error table)
-        rate (calc-rate naive-errors)]
-    (println (format "  Estimated order: %.2f" rate)))
+        rate (calc-rate naive-errors)
+        ratio-errors (map :error-ratio table)]
+    (println (format "  Estimated order: %.4f" rate))
+    (println "  Naive/Bessel error ratios by h:")
+    (doseq [row table]
+      (println (format "    h = %.3f fm  ratio ≈ %.4f"
+                       (:h row)
+                       (let [r (double (or (:error-ratio row) Double/NaN))]
+                         (if (Double/isNaN r) 0.0 r))))))
   (println ""))
 
 (println "=== DATA GENERATION COMPLETE ===")

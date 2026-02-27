@@ -208,7 +208,8 @@ class DWBADashboard {
         };
         const energyRangeEl = document.getElementById('energy-range');
         const lValuesEl = document.getElementById('L-values');
-        const defaultEnergies = [5, 10, 15, 20, 25, 30];
+        // Match backend default: [5, 10, 15, 20, 25]
+        const defaultEnergies = [5, 10, 15, 20, 25];
         const defaultL = [0, 1, 2, 3, 4, 5];
         let energies = (energyRangeEl && energyRangeEl.value || '')
             .split(',').map(s => s.trim()).filter(s => s.length > 0);
@@ -351,15 +352,32 @@ class DWBADashboard {
         // Build request body from current form (energies/L_values from inputs above)
         const params = this.getParameters();
         const body = { ...params, energies: energiesStr, L_values: LValuesStr };
+        
+        // Debug: log what we're sending
+        console.log('Elastic calculation - sending energies:', energiesStr);
+        
         this._setButtonLoading('calculate-elastic-btn', true);
         this.showStatus('Calculating...', 'info');
         const startTime = Date.now();
         try {
             const result = await this._post('/api/elastic', body);
             if (!result.success) throw new Error(result.error || 'Calculation failed');
+            
+            // Debug: log what we received
+            const receivedEnergies = result.data && result.data.parameters && result.data.parameters.energies;
+            console.log('Elastic calculation - received energies:', receivedEnergies);
+            
             this.currentData = this.currentData || {};
             const raw = result.data && (result.data.elastic || result.data['elastic']);
-            if (raw) this.currentData.elastic = raw;
+            // Replace elastic data completely (don't merge with old data)
+            if (raw) {
+                this.currentData.elastic = raw;
+                // Debug: log unique energies in the data
+                const uniqueEnergies = [...new Set(raw.map(p => p.energy))].sort((a, b) => a - b);
+                console.log('Elastic calculation - unique energies in plot data:', uniqueEnergies);
+            } else {
+                delete this.currentData.elastic;
+            }
             this.updateAllPlots();
             const used = result.data && result.data.parameters && result.data.parameters.energies;
             const n = Array.isArray(used) ? used.length : 0;
@@ -644,11 +662,21 @@ class DWBADashboard {
         const data = this.currentData.elastic;
         if (!data || data.length === 0) return;
 
+        // Get current energy range from form to filter data
+        const energyRangeEl = document.getElementById('energy-range');
+        const requestedEnergies = energyRangeEl && energyRangeEl.value 
+            ? energyRangeEl.value.split(',').map(e => parseFloat(e.trim())).filter(e => !isNaN(e))
+            : null;
+
         const traces = {};
         
-        // Group by energy
+        // Group by energy, optionally filtering to requested energies
         data.forEach(point => {
             const E = point.energy;
+            // If we have requested energies, only plot those
+            if (requestedEnergies && !requestedEnergies.includes(E)) {
+                return;
+            }
             if (!traces[E]) {
                 traces[E] = {
                     x: [],

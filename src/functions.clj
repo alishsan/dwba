@@ -428,6 +428,14 @@
               {:h h
                :naive-error (Math/abs (- delta-naive delta-exact))
                :bessel-error (Math/abs (- delta-bessel delta-exact))
+               ;; Direct difference between the two Numerov schemes
+               :scheme-diff (Math/abs (- delta-naive delta-bessel))
+               ;; Ratio of naive to Bessel error (may be NaN/Inf if bessel-error ~ 0)
+               :error-ratio (if (and (pos? (Math/abs (- delta-bessel delta-exact)))
+                                     (Double/isFinite (Math/abs (- delta-naive delta-exact))))
+                              (/ (Math/abs (- delta-naive delta-exact))
+                                 (Math/abs (- delta-bessel delta-exact)))
+                              Double/NaN)
                :naive-phase-shift delta-naive
                :bessel-phase-shift delta-bessel
                :exact-phase-shift delta-exact}))
@@ -437,11 +445,22 @@
   "Print phase shift convergence table in paper format"
   (println "Phase Shift Error Convergence |δ_calc - δ_exact|")
   (println (apply str (repeat 60 "-")))
-  (println (format "%-8s %-20s %-20s" "h (fm)" "Naive Start Error" "Bessel-Start Error"))
-  (println (apply str (repeat 60 "-")))
+  (println (format "%-8s %-22s %-22s %-22s %-12s"
+                   "h (fm)"
+                   "Naive Start Error"
+                   "Bessel-Start Error"
+                   "|δ_naive - δ_bessel|"
+                   "Naive/Bessel"))
+  (println (apply str (repeat 110 "-")))
   (doseq [row table]
-    (println (format "%-8.2f %-20.6e %-20.6e" 
-                    (:h row) (:naive-error row) (:bessel-error row))))
+    (println
+     (format "%-8.2f %-22.12e %-22.12e %-22.12e %-12.4f"
+             (:h row)
+             (:naive-error row)
+             (:bessel-error row)
+             (:scheme-diff row)
+             (let [r (double (or (:error-ratio row) Double/NaN))]
+               (if (Double/isNaN r) 0.0 r)))))
   (println ""))
 
 
